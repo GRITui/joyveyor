@@ -1,0 +1,37 @@
+# Build
+build/
+out/
+bin/
+obj/
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Engine
+Library/
+Temp/
+Logs/
+UserSettings/
+Saved/
+*.sln
+*.vcxproj*
+
+# Test / benchmark artifacts
+*.log
+profiling/
+saves/
