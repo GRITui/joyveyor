@@ -866,6 +866,41 @@ bool World::checkInvariants() const {
 }
 
 // ---------------------------------------------------------------------------
+// Snapshot (README §2.2)
+// ---------------------------------------------------------------------------
+RenderSnapshot World::renderSnapshot(float alpha) const {
+    RenderSnapshot snap;
+    snap.tick = tickCount();
+    snap.alpha = alpha;
+    const ItemPool& pool = items();
+    const int32_t total = pool.size();
+    for (int32_t i = 0; i < total && snap.itemCount < RenderSnapshot::kMaxItems; ++i) {
+        if (!pool.alive(i)) continue;
+        const uint32_t it = pool.idOf(i);
+        const uint32_t nid = pool.nodeId(i);
+        Vec2 p;
+        if (nid != INVALID_ID) {
+            // Queued at a node: render at the node's cell center.
+            const Node& n = node(nid);
+            const float cs = config().cellSize;
+            p = Vec2(static_cast<float>(n.cell.x) + 0.5f * cs,
+                     static_cast<float>(n.cell.y) + 0.5f * cs);
+        } else {
+            // On a belt: interpolate between the previous tick's arc
+            // position and the current one (alpha 0 → N-1, 1 → N).
+            const Belt& b = belt(pool.beltId(i));
+            const float prev = pool.prevArcPos(i);
+            const float arc = prev + (pool.arcPos(i) - prev) * alpha;
+            p = b.path().pos(arc);
+        }
+        snap.itemPos[snap.itemCount] = p;
+        snap.itemId[snap.itemCount] = it;
+        ++snap.itemCount;
+    }
+    return snap;
+}
+
+// ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 uint32_t World::injectItemAtEntry(uint32_t beltId, uint16_t itemType) {
