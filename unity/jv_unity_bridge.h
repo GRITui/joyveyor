@@ -27,6 +27,10 @@ int32_t jv_snapshot_items(JVWorld w, float alpha, float* itemPosXY, uint32_t* it
 int jv_has_cycle(JVWorld w);
 int jv_is_deadlocked(JVWorld w);
 int jv_check_invariants(JVWorld w);
+int jv_remove_belt(JVWorld w, uint32_t beltId);
+int jv_remove_node(JVWorld w, uint32_t nodeId);
+uint32_t jv_belt_at_cell(JVWorld w, int32_t x, int32_t y);
+uint32_t jv_node_at_cell(JVWorld w, int32_t x, int32_t y);
 
 #ifdef __cplusplus
 }

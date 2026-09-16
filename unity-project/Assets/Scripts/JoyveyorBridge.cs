@@ -31,6 +31,10 @@ public static class JoyveyorBridge
     [DllImport("jv_unity")] public static extern int jv_has_cycle(IntPtr w);
     [DllImport("jv_unity")] public static extern int jv_is_deadlocked(IntPtr w);
     [DllImport("jv_unity")] public static extern int jv_check_invariants(IntPtr w);
+    [DllImport("jv_unity")] public static extern int jv_remove_belt(IntPtr w, uint beltId);
+    [DllImport("jv_unity")] public static extern int jv_remove_node(IntPtr w, uint nodeId);
+    [DllImport("jv_unity")] public static extern uint jv_belt_at_cell(IntPtr w, int x, int y);
+    [DllImport("jv_unity")] public static extern uint jv_node_at_cell(IntPtr w, int x, int y);
 
     public static int GetSnapshot(IntPtr world, float alpha, int maxItems)
     {

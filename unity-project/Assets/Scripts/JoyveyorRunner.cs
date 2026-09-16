@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 public class JoyveyorRunner : MonoBehaviour
@@ -11,8 +12,11 @@ public class JoyveyorRunner : MonoBehaviour
     public ulong consumed;
     public int itemCount;
     public ulong tickCount;
+    public bool paused;
 
     private IntPtr world = IntPtr.Zero;
+
+    public IntPtr World => world;
 
     void OnEnable()
     {
@@ -23,7 +27,7 @@ public class JoyveyorRunner : MonoBehaviour
     // Demo level: source -> belt -> splitter -> (E branch -> sink) and
     // (S branch -> merger -> belt -> sink). Every belt exit lands on a node
     // that accepts it; merger inDirs match the feeding belts' travel dirs.
-    void PlaceDemoLevel()
+    public void PlaceDemoLevel()
     {
         Check(JoyveyorBridge.jv_place_source(world, 0, 0), "source (0,0)");
         Check(JoyveyorBridge.jv_place_belt(world, 1, 0, JoyveyorBridge.DirE, 5), "belt (1,0) dir E len 5");
@@ -36,6 +40,15 @@ public class JoyveyorRunner : MonoBehaviour
         Check(JoyveyorBridge.jv_place_sink(world, 11, 5, 50), "sink (11,5) capacity 50");
     }
 
+    public void ResetWorld()
+    {
+        if (world != IntPtr.Zero)
+        {
+            JoyveyorBridge.jv_world_destroy(world);
+            world = JoyveyorBridge.jv_world_create();
+        }
+    }
+
     static void Check(uint id, string what)
     {
         if (id == JoyveyorBridge.InvalidId)
@@ -44,7 +57,7 @@ public class JoyveyorRunner : MonoBehaviour
 
     void FixedUpdate()
     {
-        if (world != IntPtr.Zero)
+        if (world != IntPtr.Zero && !paused)
             JoyveyorBridge.jv_world_advance(world, Time.fixedDeltaTime);
     }
 

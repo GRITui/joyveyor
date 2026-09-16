@@ -210,6 +210,16 @@ public:
     int32_t beltCount() const { return belts_.size(); }
     int32_t nodeCount() const { return nodes_.size(); }
 
+    // Cell lookup (editor delete tool). INVALID_ID when the cell is empty.
+    uint32_t beltAtCell(int32_t x, int32_t y) const {
+        const Belt* b = beltAt(GridCell{x, y});
+        return b ? b->id : INVALID_ID;
+    }
+    uint32_t nodeAtCell(int32_t x, int32_t y) const {
+        const Node* n = nodeAt(GridCell{x, y});
+        return n ? n->id : INVALID_ID;
+    }
+
     // ---- Test helpers ----
     // Inject an item at a belt's entry (arcPos 0); counts toward spawned.
     uint32_t injectItemAtEntry(uint32_t beltId, uint16_t itemType = 0);

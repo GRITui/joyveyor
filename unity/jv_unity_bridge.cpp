@@ -94,4 +94,20 @@ int jv_check_invariants(JVWorld w) {
     return w && world(w)->checkInvariants() ? 1 : 0;
 }
 
+int jv_remove_belt(JVWorld w, uint32_t beltId) {
+    return w && world(w)->removeBelt(beltId) ? 1 : 0;
+}
+
+int jv_remove_node(JVWorld w, uint32_t nodeId) {
+    return w && world(w)->removeNode(nodeId) ? 1 : 0;
+}
+
+uint32_t jv_belt_at_cell(JVWorld w, int32_t x, int32_t y) {
+    return w ? world(w)->beltAtCell(x, y) : jv::INVALID_ID;
+}
+
+uint32_t jv_node_at_cell(JVWorld w, int32_t x, int32_t y) {
+    return w ? world(w)->nodeAtCell(x, y) : jv::INVALID_ID;
+}
+
 }  // extern "C"
