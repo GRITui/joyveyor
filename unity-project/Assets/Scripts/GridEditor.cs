@@ -36,14 +36,31 @@ public class GridEditor : MonoBehaviour
 
     void Start()
     {
-        runner = GetComponent<JoyveyorRunner>();
-        cam = Camera.main ?? FindObjectOfType<Camera>();
-        if (cam.orthographic) cam.orthographicSize = Mathf.Clamp(cam.orthographicSize, 3f, 20f);
-        sprite = MakeSprite();
-        BuildGridLines();
-        hud = MakeHud();
-        previewSr = MakePreview();
-        LoadDemo();
+        try
+        {
+            runner = GetComponent<JoyveyorRunner>();
+            cam = Camera.main ?? FindObjectOfType<Camera>();
+            if (cam == null)
+            {
+                var cgo = new GameObject("Main Camera");
+                cgo.tag = "MainCamera";
+                cam = cgo.AddComponent<Camera>();
+            }
+            // Camera in front of the grid (content lives at z=0), facing -Z toward it.
+            cam.orthographic = true;
+            cam.orthographicSize = 9f;
+            cam.transform.position = new Vector3(GridW * 0.5f, -GridH * 0.5f, 10f);
+            cam.transform.rotation = Quaternion.identity;
+            sprite = MakeSprite();
+            BuildGridLines();
+            hud = MakeHud();
+            previewSr = MakePreview();
+            LoadDemo();
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError("[GridEditor] Start failed: " + e);
+        }
     }
 
     void OnDestroy()
@@ -278,7 +295,8 @@ public class GridEditor : MonoBehaviour
     TextMesh MakeHud()
     {
         var go = new GameObject("HUD");
-        go.transform.SetParent(cam.transform, false);
+        go.transform.SetParent(transform, false);  // world space, same plane as the grid
+        go.transform.localPosition = new Vector3(0.3f, -0.3f, 0.1f);  // top-left of grid
         var tm = go.AddComponent<TextMesh>();
         tm.characterSize = 0.22f;
         tm.anchor = TextAnchor.UpperLeft;
