@@ -26,11 +26,17 @@ uint32_t ItemPool::add(uint16_t itemType, uint32_t beltId, float arcPos, uint8_t
     routeHints_[i] = routeHint;
     nextOnBelt_[i] = INVALID_ID;
     alive_[i] = 1;
+    nodeIds_[i] = INVALID_ID;
+    prevArcPos_[i] = arcPos;
+    ++liveCount_;
     return static_cast<uint32_t>(i);
 }
 
 void ItemPool::remove(uint32_t id) {
-    if (id < static_cast<uint32_t>(size_)) alive_[id] = 0;
+    if (id < static_cast<uint32_t>(size_) && alive_[id]) {
+        alive_[id] = 0;
+        --liveCount_;
+    }
 }
 
 void ItemPool::compact() {
@@ -46,11 +52,14 @@ void ItemPool::compact() {
             routeHints_[w] = routeHints_[r];
             nextOnBelt_[w] = nextOnBelt_[r];
             alive_[w] = 1;
+            nodeIds_[w] = nodeIds_[r];
+            prevArcPos_[w] = prevArcPos_[r];
         }
         ids_[w] = static_cast<uint32_t>(w);  // reassign dense id
         ++w;
     }
     size_ = w;
+    liveCount_ = w;
 }
 
 void ItemPool::grow() {
@@ -64,6 +73,9 @@ void ItemPool::grow() {
     uint32_t* hints2 = allocArray<uint32_t>(ncap);
     uint32_t* next2 = allocArray<uint32_t>(ncap);
     uint8_t* alive2 = allocArray<uint8_t>(ncap);
+    uint32_t* nodeIds2 = allocArray<uint32_t>(ncap);
+    float* prevArc2 = allocArray<float>(ncap);
+    for (int32_t i = 0; i < ncap; ++i) nodeIds2[i] = INVALID_ID;
 
     if (size_ > 0) {
         std::memcpy(ids2, ids_, static_cast<size_t>(size_) * sizeof(uint32_t));
@@ -74,6 +86,8 @@ void ItemPool::grow() {
         std::memcpy(hints2, routeHints_, static_cast<size_t>(size_) * sizeof(uint32_t));
         std::memcpy(next2, nextOnBelt_, static_cast<size_t>(size_) * sizeof(uint32_t));
         std::memcpy(alive2, alive_, static_cast<size_t>(size_) * sizeof(uint8_t));
+        std::memcpy(nodeIds2, nodeIds_, static_cast<size_t>(size_) * sizeof(uint32_t));
+        std::memcpy(prevArc2, prevArcPos_, static_cast<size_t>(size_) * sizeof(float));
     }
 
     delete[] ids_;
@@ -84,6 +98,8 @@ void ItemPool::grow() {
     delete[] routeHints_;
     delete[] nextOnBelt_;
     delete[] alive_;
+    delete[] nodeIds_;
+    delete[] prevArcPos_;
 
     ids_ = ids2;
     itemTypes_ = types2;
@@ -93,6 +109,8 @@ void ItemPool::grow() {
     routeHints_ = hints2;
     nextOnBelt_ = next2;
     alive_ = alive2;
+    nodeIds_ = nodeIds2;
+    prevArcPos_ = prevArc2;
     capacity_ = ncap;
 }
 
