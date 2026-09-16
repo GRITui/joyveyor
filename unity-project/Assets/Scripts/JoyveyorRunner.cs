@@ -20,14 +20,18 @@ public class JoyveyorRunner : MonoBehaviour
         PlaceDemoLevel();
     }
 
+    // Demo level: source -> belt -> splitter -> (E branch -> sink) and
+    // (S branch -> merger -> belt -> sink). Every belt exit lands on a node
+    // that accepts it; merger inDirs match the feeding belts' travel dirs.
     void PlaceDemoLevel()
     {
         Check(JoyveyorBridge.jv_place_source(world, 0, 0), "source (0,0)");
         Check(JoyveyorBridge.jv_place_belt(world, 1, 0, JoyveyorBridge.DirE, 5), "belt (1,0) dir E len 5");
         Check(JoyveyorBridge.jv_place_splitter(world, 6, 0, JoyveyorBridge.DirE, JoyveyorBridge.DirS), "splitter (6,0) outA=E outB=S");
         Check(JoyveyorBridge.jv_place_belt(world, 7, 0, JoyveyorBridge.DirE, 4), "belt (7,0) dir E len 4");
+        Check(JoyveyorBridge.jv_place_sink(world, 11, 0, 50), "sink (11,0) capacity 50");
         Check(JoyveyorBridge.jv_place_belt(world, 6, 1, JoyveyorBridge.DirS, 4), "belt (6,1) dir S len 4");
-        Check(JoyveyorBridge.jv_place_merger(world, 6, 5, JoyveyorBridge.DirN, JoyveyorBridge.DirW, JoyveyorBridge.DirE), "merger (6,5) inA=N inB=W out=E");
+        Check(JoyveyorBridge.jv_place_merger(world, 6, 5, JoyveyorBridge.DirS, JoyveyorBridge.DirW, JoyveyorBridge.DirE), "merger (6,5) inA=S inB=W out=E");
         Check(JoyveyorBridge.jv_place_belt(world, 7, 5, JoyveyorBridge.DirE, 4), "belt (7,5) dir E len 4");
         Check(JoyveyorBridge.jv_place_sink(world, 11, 5, 50), "sink (11,5) capacity 50");
     }

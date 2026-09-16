@@ -221,6 +221,9 @@ public:
 private:
     // Placement helpers
     bool cellFree(const GridCell& c) const;
+    // Node-connection rules (entry/exit side); return false to reject.
+    bool tryLinkEntry(Node& n, Belt& b);
+    bool tryLinkExit(Node& n, Belt& b);
     const Node* nodeAt(const GridCell& c) const;
     Node* nodeAt(const GridCell& c);
     const Belt* beltAt(const GridCell& c) const;  // belt occupying the cell

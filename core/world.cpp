@@ -103,6 +103,72 @@ Belt* World::beltAt(const GridCell& c) {
 // ---------------------------------------------------------------------------
 // Placement
 // ---------------------------------------------------------------------------
+bool World::tryLinkEntry(Node& n, Belt& b) {
+    switch (n.kind) {
+        case NodeKind::Source:
+            if (n.outputs[0] != INVALID_ID) return false;
+            n.outputs[0] = b.id;
+            n.outputCount = 1;
+            b.inNode = n.id;
+            break;
+        case NodeKind::Splitter: {
+            int32_t slot = -1;
+            for (int32_t i = 0; i < n.outputCount; ++i) {
+                if (n.outDirs[i] == b.dir && n.outputs[i] == INVALID_ID) { slot = i; break; }
+            }
+            if (slot < 0) return false;
+            n.outputs[slot] = b.id;
+            b.inNode = n.id;
+            break;
+        }
+        case NodeKind::Merger:
+            if (n.outDirs[0] != b.dir || n.outputs[0] != INVALID_ID) return false;
+            n.outputs[0] = b.id;
+            n.outputCount = 1;
+            b.inNode = n.id;
+            break;
+        case NodeKind::Junction:
+            b.inNode = n.id;
+            break;
+        case NodeKind::Sink:
+            return false;  // a belt cannot exit a sink
+    }
+    return true;
+}
+
+bool World::tryLinkExit(Node& n, Belt& b) {
+    switch (n.kind) {
+        case NodeKind::Sink:
+            if (n.inputs[0] != INVALID_ID) return false;
+            n.inputs[0] = b.id;
+            n.inputCount = 1;
+            b.outNode = n.id;
+            break;
+        case NodeKind::Splitter:
+            if (n.inputs[0] != INVALID_ID) return false;
+            n.inputs[0] = b.id;
+            n.inputCount = 1;
+            b.outNode = n.id;
+            break;
+        case NodeKind::Merger: {
+            int32_t slot = -1;
+            for (int32_t i = 0; i < n.inputCount; ++i) {
+                if (n.inDirs[i] == b.dir && n.inputs[i] == INVALID_ID) { slot = i; break; }
+            }
+            if (slot < 0) return false;
+            n.inputs[slot] = b.id;
+            b.outNode = n.id;
+            break;
+        }
+        case NodeKind::Junction:
+            b.outNode = n.id;
+            break;
+        case NodeKind::Source:
+            return false;  // a belt cannot enter a source
+    }
+    return true;
+}
+
 uint32_t World::placeBelt(int32_t x, int32_t y, Dir dir, int len) {
     if (len < 1) return INVALID_ID;
 
@@ -146,39 +212,7 @@ uint32_t World::placeBelt(int32_t x, int32_t y, Dir dir, int len) {
 
     // 3) Upstream connection: entry cell.
     if (Node* n = nodeAt(entry)) {
-        switch (n->kind) {
-            case NodeKind::Source:
-                if (n->outputs[0] != INVALID_ID) { belts_.remove(id); return INVALID_ID; }
-                n->outputs[0] = id;
-                n->outputCount = 1;
-                b.inNode = n->id;
-                break;
-            case NodeKind::Splitter: {
-                int32_t slot = -1;
-                for (int32_t i = 0; i < n->outputCount; ++i) {
-                    if (n->outDirs[i] == dir && n->outputs[i] == INVALID_ID) { slot = i; break; }
-                }
-                if (slot < 0) { belts_.remove(id); return INVALID_ID; }
-                n->outputs[slot] = id;
-                b.inNode = n->id;
-                break;
-            }
-            case NodeKind::Merger:
-                if (n->outDirs[0] != dir || n->outputs[0] != INVALID_ID) {
-                    belts_.remove(id);
-                    return INVALID_ID;
-                }
-                n->outputs[0] = id;
-                n->outputCount = 1;
-                b.inNode = n->id;
-                break;
-            case NodeKind::Junction:
-                b.inNode = n->id;
-                break;
-            case NodeKind::Sink:
-                belts_.remove(id);
-                return INVALID_ID;  // a belt cannot exit a sink
-        }
+        if (!tryLinkEntry(*n, b)) { belts_.remove(id); return INVALID_ID; }
     } else if (Belt* up = beltAt(entry)) {
         // Belt-to-belt: the upstream belt must exit exactly into this belt's
         // origin, in the same direction (compatible straight continuation).
@@ -192,36 +226,7 @@ uint32_t World::placeBelt(int32_t x, int32_t y, Dir dir, int len) {
 
     // 4) Downstream connection: exit cell.
     if (Node* n = nodeAt(exit)) {
-        switch (n->kind) {
-            case NodeKind::Sink:
-                if (n->inputs[0] != INVALID_ID) { belts_.remove(id); return INVALID_ID; }
-                n->inputs[0] = id;
-                n->inputCount = 1;
-                b.outNode = n->id;
-                break;
-            case NodeKind::Splitter:
-                if (n->inputs[0] != INVALID_ID) { belts_.remove(id); return INVALID_ID; }
-                n->inputs[0] = id;
-                n->inputCount = 1;
-                b.outNode = n->id;
-                break;
-            case NodeKind::Merger: {
-                int32_t slot = -1;
-                for (int32_t i = 0; i < n->inputCount; ++i) {
-                    if (n->inDirs[i] == dir && n->inputs[i] == INVALID_ID) { slot = i; break; }
-                }
-                if (slot < 0) { belts_.remove(id); return INVALID_ID; }
-                n->inputs[slot] = id;
-                b.outNode = n->id;
-                break;
-            }
-            case NodeKind::Junction:
-                b.outNode = n->id;
-                break;
-            case NodeKind::Source:
-                belts_.remove(id);
-                return INVALID_ID;  // a belt cannot enter a source
-        }
+        if (!tryLinkExit(*n, b)) { belts_.remove(id); return INVALID_ID; }
     } else if (const Belt* dn = beltAt(exit)) {
         // The downstream belt must start exactly where this belt ends, in the
         // same direction.
@@ -246,6 +251,13 @@ uint32_t World::placeSource(GridCell cell) {
     n.storageCapacity = 0;
     n.storageCount = 0;
     n.spawnTimer = 0;
+    // Re-link belts placed before this node (order-independent connections).
+    for (int32_t i = 0; i < belts_.size(); ++i) {
+        if (!belts_.alive(i)) continue;
+        Belt& b = belts_[i];
+        if (b.exitCell() == cell) tryLinkExit(n, b);
+        if (b.entryCell() == cell) tryLinkEntry(n, b);
+    }
     ensureChunk(chunkCoord(cell.x), chunkCoord(cell.y));
     recomputeNetworks();
     return id;
@@ -260,6 +272,13 @@ uint32_t World::placeSink(GridCell cell, uint16_t capacity) {
     n.cell = cell;
     n.storageCapacity = capacity;
     n.storageCount = 0;
+    // Re-link belts placed before this node (order-independent connections).
+    for (int32_t i = 0; i < belts_.size(); ++i) {
+        if (!belts_.alive(i)) continue;
+        Belt& b = belts_[i];
+        if (b.exitCell() == cell) tryLinkExit(n, b);
+        if (b.entryCell() == cell) tryLinkEntry(n, b);
+    }
     ensureChunk(chunkCoord(cell.x), chunkCoord(cell.y));
     recomputeNetworks();
     return id;
@@ -278,6 +297,13 @@ uint32_t World::placeSplitter(GridCell cell, Dir outA, Dir outB) {
     n.outputs[0] = INVALID_ID;
     n.outputs[1] = INVALID_ID;
     n.routingMode = 0;  // RoundRobin
+    // Re-link belts placed before this node (order-independent connections).
+    for (int32_t i = 0; i < belts_.size(); ++i) {
+        if (!belts_.alive(i)) continue;
+        Belt& b = belts_[i];
+        if (b.exitCell() == cell) tryLinkExit(n, b);
+        if (b.entryCell() == cell) tryLinkEntry(n, b);
+    }
     ensureChunk(chunkCoord(cell.x), chunkCoord(cell.y));
     recomputeNetworks();
     return id;
@@ -295,6 +321,13 @@ uint32_t World::placeMerger(GridCell cell, Dir inA, Dir inB, Dir out) {
     n.inDirs[1] = inB;
     n.outDirs[0] = out;
     n.outputs[0] = INVALID_ID;
+    // Re-link belts placed before this node (order-independent connections).
+    for (int32_t i = 0; i < belts_.size(); ++i) {
+        if (!belts_.alive(i)) continue;
+        Belt& b = belts_[i];
+        if (b.exitCell() == cell) tryLinkExit(n, b);
+        if (b.entryCell() == cell) tryLinkEntry(n, b);
+    }
     ensureChunk(chunkCoord(cell.x), chunkCoord(cell.y));
     recomputeNetworks();
     return id;
