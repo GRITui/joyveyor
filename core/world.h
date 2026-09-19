@@ -13,6 +13,7 @@
 #include "path.h"
 #include "types.h"
 
+#include <string>
 #include <vector>
 
 namespace jv {
@@ -154,6 +155,11 @@ public:
     bool removeBelt(uint32_t beltId);   // only when empty
     bool removeNode(uint32_t nodeId);   // only when storage/queue empty
 
+    // ---- Reset (load path) ----
+    // Drop every element + counter. A save is layout-only, so a fresh load
+    // starts empty; counters (spawned/delivered/consumed/tick) clear too.
+    void reset();
+
     // ---- Time (README §2.2) ----
     // Time accumulator → integer ticks at fixed dt.
     void advance(float seconds);
@@ -209,6 +215,10 @@ public:
     const Node& node(uint32_t id) const { return *nodes_.data(id); }
     int32_t beltCount() const { return belts_.size(); }
     int32_t nodeCount() const { return nodes_.size(); }
+    // Human-readable reason for the last rejected placement ("" if the last
+    // placement succeeded). Editor HUD shows this instead of a bare
+    // "placement rejected" (t_e11c9547).
+    const std::string& lastPlacementError() const { return lastPlacementError_; }
 
     // Cell lookup (editor delete tool). INVALID_ID when the cell is empty.
     uint32_t beltAtCell(int32_t x, int32_t y) const {
@@ -276,6 +286,9 @@ private:
     uint64_t consumedCount_ = 0;
     uint32_t lastDeliveredId_ = INVALID_ID;
     uint64_t movedThisTick_ = 0;
+
+    // Human-readable reason for the last rejected placement (editor HUD).
+    std::string lastPlacementError_;
 };
 
 }  // namespace jv

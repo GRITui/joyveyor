@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 
 // Sandbox editor: click-to-place grid editor over the C++ sim.
@@ -92,6 +94,10 @@ public class GridEditor : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.Return)) LoadDemo();
         if (Input.GetKeyDown(KeyCode.Backspace)) ClearAll();
         if (Input.GetKeyDown(KeyCode.Space)) runner.paused = !runner.paused;
+        if ((Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
+            && Input.GetKeyDown(KeyCode.S)) SaveLevel();
+        if ((Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
+            && Input.GetKeyDown(KeyCode.O)) LoadLevel();
 
         if (cam.orthographic)
             cam.orthographicSize = Mathf.Clamp(
@@ -130,11 +136,16 @@ public class GridEditor : MonoBehaviour
         {
             case Tool.Source: id = JoyveyorBridge.jv_place_source(runner.World, x, y); kind = Kind.Source; break;
             case Tool.Sink: id = JoyveyorBridge.jv_place_sink(runner.World, x, y, (ushort)sinkCapacity); kind = Kind.Sink; break;
-            case Tool.Splitter: id = JoyveyorBridge.jv_place_splitter(runner.World, x, y, dir, Cw(dir)); kind = Kind.Splitter; break;
-            case Tool.Merger: id = JoyveyorBridge.jv_place_merger(runner.World, x, y, dir, Ccw(dir), Opp(dir)); kind = Kind.Merger; break;
+            case Tool.Splitter: id = JoyveyorBridge.jv_place_splitter(runner.World, x, y, JoyveyorBridge.DirE, JoyveyorBridge.DirS); kind = Kind.Splitter; break;
+            case Tool.Merger: id = JoyveyorBridge.jv_place_merger(runner.World, x, y, JoyveyorBridge.DirS, JoyveyorBridge.DirW, JoyveyorBridge.DirE); kind = Kind.Merger; break;
             default: id = JoyveyorBridge.jv_place_belt(runner.World, x, y, dir, beltLen); kind = Kind.Belt; break;
         }
-        if (id == JoyveyorBridge.InvalidId) { Fail("placement rejected"); return; }
+        if (id == JoyveyorBridge.InvalidId)
+        {
+            string why = JoyveyorBridge.LastPlacementError(runner.World);
+            Fail(why.Length > 0 ? "placement rejected: " + why : "placement rejected");
+            return;
+        }
         pieces.Add(new Piece { kind = kind, x = x, y = y, dir = dir, len = kind == Kind.Belt ? beltLen : 1 });
         RebuildVisuals();
     }
@@ -169,6 +180,94 @@ public class GridEditor : MonoBehaviour
         runner.ResetWorld();
         pieces.Clear();
         RebuildVisuals();
+    }
+
+    // ---- Save / Load (README §3.4) ----
+    // Layout lives in the C++ world; the editor's `pieces` list is the visual
+    // mirror. Save = serialize the world. Load = parse the text into pieces
+    // AND apply it to a fresh world (single source of truth for connections).
+
+    const string SavePath = "joyveyor_level.jvl";
+
+    void SaveLevel()
+    {
+        try
+        {
+            string text = JoyveyorBridge.SaveLayout(runner.World);
+            File.WriteAllText(SavePath, text);
+            Fail("saved " + pieces.Count + " pieces -> " + SavePath);
+        }
+        catch (System.Exception e) { Fail("save failed: " + e.Message); }
+    }
+
+    void LoadLevel()
+    {
+        if (!File.Exists(SavePath)) { Fail("no saved level (" + SavePath + ")"); return; }
+        try
+        {
+            string text = File.ReadAllText(SavePath);
+            // C++ world is the source of truth: load the layout directly
+            // (preserves exact sink capacity + splitter/merger dirs).
+            runner.ResetWorld();
+            if (!JoyveyorBridge.LoadLayout(runner.World, text))
+            {
+                Fail("bad save file");
+                return;
+            }
+            // Rebuild the visual mirror from the same text.
+            if (!ParseLayout(text, out List<Piece> loaded))
+            {
+                Fail("bad save file (visuals)");
+                return;
+            }
+            pieces = loaded;
+            RebuildVisuals();
+            Fail("loaded " + pieces.Count + " pieces");
+        }
+        catch (System.Exception e) { Fail("load failed: " + e.Message); }
+    }
+
+    // Parse a #JVL1 layout string into pieces (nodes then belts, file order).
+    // Returns false on malformed input.
+    static bool ParseLayout(string text, out List<Piece> outPieces)
+    {
+        outPieces = new List<Piece>();
+        string[] lines = text.Replace("\r", "").Split('\n');
+        bool first = true;
+        foreach (var raw in lines)
+        {
+            string line = raw.Trim();
+            if (line.Length == 0) continue;
+            if (first) { first = false; if (line != "#JVL1") return false; continue; }
+            string[] t = line.Split(' ');
+            if (t.Length < 2) return false;
+            if (!int.TryParse(t[1], out int x) || !int.TryParse(t[2], out int y)) return false;
+            switch (t[0])
+            {
+                case "S":
+                    outPieces.Add(new Piece { kind = Kind.Source, x = x, y = y, dir = JoyveyorBridge.DirE });
+                    break;
+                case "K":
+                    outPieces.Add(new Piece { kind = Kind.Sink, x = x, y = y, dir = JoyveyorBridge.DirE });
+                    break;
+                case "T":
+                    if (t.Length < 5 || !byte.TryParse(t[3], out byte ta) || !byte.TryParse(t[4], out byte tb)) return false;
+                    outPieces.Add(new Piece { kind = Kind.Splitter, x = x, y = y, dir = ta });
+                    break;
+                case "M":
+                    if (t.Length < 4 || !byte.TryParse(t[3], out byte ma)) return false;
+                    outPieces.Add(new Piece { kind = Kind.Merger, x = x, y = y, dir = ma });
+                    break;
+                case "B":
+                    if (t.Length < 5 || !byte.TryParse(t[3], out byte bd) || !int.TryParse(t[4], out int bl)) return false;
+                    outPieces.Add(new Piece { kind = Kind.Belt, x = x, y = y, dir = bd, len = bl });
+                    break;
+                default:
+                    return false;
+            }
+        }
+        if (first) return false;  // no header
+        return true;
     }
 
     static List<Piece> DemoPieces()
@@ -325,7 +424,8 @@ public class GridEditor : MonoBehaviour
             + "in-flight " + runner.itemCount + "   tick " + runner.tickCount + "\n";
         if (JoyveyorBridge.jv_is_deadlocked(runner.World) == 1) s += "DEADLOCK!\n";
         if (msgTimer > 0f) s += msg + "\n";
-        s += "1-6 tools  WASD dir  +/- len  Enter demo  Bksp clear  Space pause  RMB delete";
+        s += "1-6 tools  WASD dir  +/- len  Enter demo  Bksp clear  Space pause  RMB delete\n"
+            + "Ctrl+S save  Ctrl+O load";
         return s;
     }
 
@@ -373,10 +473,6 @@ public class GridEditor : MonoBehaviour
             default: return "W";
         }
     }
-
-    static byte Cw(byte d) { return (byte)((d + 1) % 4); }        // N->E->S->W
-    static byte Ccw(byte d) { return (byte)((d + 3) % 4); }       // N->W->S->E
-    static byte Opp(byte d) { return (byte)((d + 2) % 4); }       // N<->S, E<->W
 
     static Sprite MakeSprite()
     {

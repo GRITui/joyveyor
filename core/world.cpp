@@ -170,7 +170,8 @@ bool World::tryLinkExit(Node& n, Belt& b) {
 }
 
 uint32_t World::placeBelt(int32_t x, int32_t y, Dir dir, int len) {
-    if (len < 1) return INVALID_ID;
+    lastPlacementError_.clear();
+    if (len < 1) { lastPlacementError_ = "invalid belt length"; return INVALID_ID; }
 
     const GridCell origin{x, y};
     const Vec2 v = dirVec(dir);
@@ -179,7 +180,10 @@ uint32_t World::placeBelt(int32_t x, int32_t y, Dir dir, int len) {
 
     // 1) Overlap check: every occupied cell must be free.
     for (int32_t i = 0; i < len; ++i) {
-        if (!cellFree(GridCell{origin.x + dx * i, origin.y + dy * i})) return INVALID_ID;
+        if (!cellFree(GridCell{origin.x + dx * i, origin.y + dy * i})) {
+            lastPlacementError_ = "cell occupied";
+            return INVALID_ID;
+        }
     }
 
     // 2) Create the belt.
@@ -212,12 +216,13 @@ uint32_t World::placeBelt(int32_t x, int32_t y, Dir dir, int len) {
 
     // 3) Upstream connection: entry cell.
     if (Node* n = nodeAt(entry)) {
-        if (!tryLinkEntry(*n, b)) { belts_.remove(id); return INVALID_ID; }
+        if (!tryLinkEntry(*n, b)) { belts_.remove(id); lastPlacementError_ = "incompatible upstream connection"; return INVALID_ID; }
     } else if (Belt* up = beltAt(entry)) {
         // Belt-to-belt: the upstream belt must exit exactly into this belt's
         // origin, in the same direction (compatible straight continuation).
         if (up->dir != dir || up->exitCell() != origin || up->nextBelt != INVALID_ID) {
             belts_.remove(id);
+            lastPlacementError_ = "incompatible upstream connection";
             return INVALID_ID;
         }
         up->nextBelt = id;
@@ -226,12 +231,13 @@ uint32_t World::placeBelt(int32_t x, int32_t y, Dir dir, int len) {
 
     // 4) Downstream connection: exit cell.
     if (Node* n = nodeAt(exit)) {
-        if (!tryLinkExit(*n, b)) { belts_.remove(id); return INVALID_ID; }
+        if (!tryLinkExit(*n, b)) { belts_.remove(id); lastPlacementError_ = "incompatible downstream connection"; return INVALID_ID; }
     } else if (const Belt* dn = beltAt(exit)) {
         // The downstream belt must start exactly where this belt ends, in the
         // same direction.
         if (dn->dir != dir || dn->cellOrigin != exit) {
             belts_.remove(id);
+            lastPlacementError_ = "incompatible downstream connection";
             return INVALID_ID;
         }
         b.nextBelt = dn->id;
@@ -243,7 +249,8 @@ uint32_t World::placeBelt(int32_t x, int32_t y, Dir dir, int len) {
 }
 
 uint32_t World::placeSource(GridCell cell) {
-    if (!cellFree(cell)) return INVALID_ID;
+    lastPlacementError_.clear();
+    if (!cellFree(cell)) { lastPlacementError_ = "cell occupied"; return INVALID_ID; }
     const uint32_t id = nodes_.add();
     Node& n = nodes_[id];
     n.kind = NodeKind::Source;
@@ -264,8 +271,9 @@ uint32_t World::placeSource(GridCell cell) {
 }
 
 uint32_t World::placeSink(GridCell cell, uint16_t capacity) {
-    if (capacity < 1) return INVALID_ID;
-    if (!cellFree(cell)) return INVALID_ID;
+    lastPlacementError_.clear();
+    if (capacity < 1) { lastPlacementError_ = "invalid sink capacity"; return INVALID_ID; }
+    if (!cellFree(cell)) { lastPlacementError_ = "cell occupied"; return INVALID_ID; }
     const uint32_t id = nodes_.add();
     Node& n = nodes_[id];
     n.kind = NodeKind::Sink;
@@ -285,8 +293,9 @@ uint32_t World::placeSink(GridCell cell, uint16_t capacity) {
 }
 
 uint32_t World::placeSplitter(GridCell cell, Dir outA, Dir outB) {
-    if (outA == outB) return INVALID_ID;
-    if (!cellFree(cell)) return INVALID_ID;
+    lastPlacementError_.clear();
+    if (outA == outB) { lastPlacementError_ = "splitter outputs must differ"; return INVALID_ID; }
+    if (!cellFree(cell)) { lastPlacementError_ = "cell occupied"; return INVALID_ID; }
     const uint32_t id = nodes_.add();
     Node& n = nodes_[id];
     n.kind = NodeKind::Splitter;
@@ -310,8 +319,9 @@ uint32_t World::placeSplitter(GridCell cell, Dir outA, Dir outB) {
 }
 
 uint32_t World::placeMerger(GridCell cell, Dir inA, Dir inB, Dir out) {
-    if (inA == inB || out == inA || out == inB) return INVALID_ID;
-    if (!cellFree(cell)) return INVALID_ID;
+    lastPlacementError_.clear();
+    if (inA == inB || out == inA || out == inB) { lastPlacementError_ = "merger dirs must be distinct"; return INVALID_ID; }
+    if (!cellFree(cell)) { lastPlacementError_ = "cell occupied"; return INVALID_ID; }
     const uint32_t id = nodes_.add();
     Node& n = nodes_[id];
     n.kind = NodeKind::Merger;
@@ -375,6 +385,27 @@ bool World::removeNode(uint32_t nodeId) {
     nodes_.remove(nodeId);
     recomputeNetworks();
     return true;
+}
+
+void World::reset() {
+    // Dense pools: reset() zeros size (alive flags are rewritten by add()).
+    items_.reset();
+    for (int32_t i = 0; i < belts_.size(); ++i) belts_.remove(i);
+    belts_.compact();
+    for (int32_t i = 0; i < nodes_.size(); ++i) nodes_.remove(i);
+    nodes_.compact();
+    for (int32_t i = 0; i < networks_.size(); ++i) networks_.remove(i);
+    networks_.compact();
+    chunks_.clear();
+    beltMoveOrder_.clear();
+    movedPerNetwork_.clear();
+    timeAccumulator_ = 0.0f;
+    tickCount_ = 0;
+    spawnedCount_ = 0;
+    deliveredCount_ = 0;
+    consumedCount_ = 0;
+    lastDeliveredId_ = INVALID_ID;
+    movedThisTick_ = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -654,13 +685,21 @@ void World::tickNodesDispatch() {
             const uint32_t it = n.queue.front();
             bool dispatched = false;
             if (n.kind == NodeKind::Splitter && n.outputCount > 0) {
-                const uint32_t outIdx = n.rrCursor % n.outputCount;
-                const uint32_t targetBelt = n.outputs[outIdx];
-                if (targetBelt != INVALID_ID) {
+                // Round-robin, but fall through to the next output if the
+                // current one's entry gate is closed (t_59dcaa3e): a full
+                // branch must not starve the free one. Try outputs in
+                // round-robin order starting at rrCursor; advance the cursor
+                // only past the output actually used (deterministic).
+                const uint32_t outCount = n.outputCount;
+                for (uint32_t k = 0; k < outCount; ++k) {
+                    const uint32_t outIdx = (n.rrCursor + k) % outCount;
+                    const uint32_t targetBelt = n.outputs[outIdx];
+                    if (targetBelt == INVALID_ID) continue;
                     items_.setRouteHint(it, targetBelt);
                     if (dispatchItemToBelt(it, targetBelt)) {
-                        n.rrCursor = (n.rrCursor + 1) % n.outputCount;
+                        n.rrCursor = (n.rrCursor + k + 1) % outCount;
                         dispatched = true;
+                        break;
                     }
                 }
             } else if (n.kind == NodeKind::Merger || n.kind == NodeKind::Junction) {
@@ -863,7 +902,12 @@ void World::tickBookkeeping() {
     for (int32_t i = 0; i < networks_.size(); ++i) {
         if (!networks_.alive(i)) continue;
         Network& net = networks_[i];
-        if (movedThisTick_ == 0 && net.itemCount > 0) {
+        // Only a cyclic network (no sink to drain) can genuinely jam. A
+        // healthy line with full sinks parks every item at minGap (zero
+        // movement) but is NOT deadlocked — README §3.1 scopes the detector
+        // to closed loops. Gating on hasCycle is the root-cause fix: it
+        // applies to every network in one place.
+        if (net.hasCycle && movedThisTick_ == 0 && net.itemCount > 0) {
             ++net.jamTicks;
         } else {
             net.jamTicks = 0;

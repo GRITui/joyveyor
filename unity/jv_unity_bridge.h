@@ -31,6 +31,10 @@ int jv_remove_belt(JVWorld w, uint32_t beltId);
 int jv_remove_node(JVWorld w, uint32_t nodeId);
 uint32_t jv_belt_at_cell(JVWorld w, int32_t x, int32_t y);
 uint32_t jv_node_at_cell(JVWorld w, int32_t x, int32_t y);
+char* jv_save_layout(JVWorld w);   // malloc'd; free with jv_free
+int jv_load_layout(JVWorld w, const char* text);  // 1 ok / 0 rejected (world untouched)
+const char* jv_last_placement_error(JVWorld w);   // "" if last placement ok
+void jv_free(void* p);
 
 #ifdef __cplusplus
 }

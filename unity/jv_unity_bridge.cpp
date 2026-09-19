@@ -1,6 +1,10 @@
 #include "jv_unity_bridge.h"
 
+#include "core/save.h"
 #include "core/world.h"
+
+#include <cstdlib>
+#include <cstring>
 
 namespace {
 inline jv::World* world(JVWorld w) { return static_cast<jv::World*>(w); }
@@ -108,6 +112,27 @@ uint32_t jv_belt_at_cell(JVWorld w, int32_t x, int32_t y) {
 
 uint32_t jv_node_at_cell(JVWorld w, int32_t x, int32_t y) {
     return w ? world(w)->nodeAtCell(x, y) : jv::INVALID_ID;
+}
+
+char* jv_save_layout(JVWorld w) {
+    if (!w) return nullptr;
+    const std::string s = jv::saveLayout(*world(w));
+    char* out = static_cast<char*>(std::malloc(s.size() + 1));
+    if (out) std::memcpy(out, s.c_str(), s.size() + 1);
+    return out;
+}
+
+int jv_load_layout(JVWorld w, const char* text) {
+    if (!w || !text) return 0;
+    return jv::loadLayout(*world(w), text) ? 1 : 0;
+}
+
+void jv_free(void* p) {
+    std::free(p);
+}
+
+const char* jv_last_placement_error(JVWorld w) {
+    return w ? world(w)->lastPlacementError().c_str() : "";
 }
 
 }  // extern "C"

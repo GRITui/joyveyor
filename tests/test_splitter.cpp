@@ -54,5 +54,40 @@ int main() {
     JV_CHECK_EQ(w.itemCount(), 0);
     JV_CHECK_EQ(w.deliveredCount(), w.spawnedCount());
 
+    // 2) Full-branch fall-through (t_59dcaa3e): one branch's sink fills
+    // instantly; the free branch must still receive the majority of items
+    // instead of starving behind the full one.
+    {
+        World w2;
+        const uint32_t src = w2.placeSource(GridCell{0, 0});
+        const uint32_t split = w2.placeSplitter(GridCell{3, 0}, E, S);
+        const uint32_t sinkE = w2.placeSink(GridCell{5, 0}, 1);   // fills instantly
+        const uint32_t sinkS = w2.placeSink(GridCell{3, 11}, 50); // free
+        JV_CHECK(src != INVALID_ID && split != INVALID_ID);
+        JV_CHECK(sinkE != INVALID_ID && sinkS != INVALID_ID);
+        const uint32_t inBelt = w2.placeBelt(1, 0, E, 2);
+        const uint32_t eBelt = w2.placeBelt(4, 0, E, 1);
+        const uint32_t sBelt = w2.placeBelt(3, 1, S, 10);
+        JV_CHECK(inBelt != INVALID_ID && eBelt != INVALID_ID && sBelt != INVALID_ID);
+
+        const int ticks = 120 * 30;  // 120s at 30 Hz
+        for (int t = 0; t < ticks; ++t) {
+            w2.tick();
+            JV_CHECK(w2.checkInvariants());
+        }
+
+        // Count items sitting on the free (S) branch belt.
+        int32_t sBeltItems = 0;
+        for (uint32_t it = w2.belt(sBelt).headItem; it != INVALID_ID;
+             it = w2.items().nextOnBelt(it)) ++sBeltItems;
+        const uint32_t sDelivered = w2.node(sinkS).storageCount;
+        const uint32_t spawned = w2.spawnedCount();
+        // Free branch (sink + in-transit) must hold >= 80% of (spawned - 1),
+        // the -1 being the single item that filled the E sink.
+        JV_CHECK(spawned > 1);
+        JV_CHECK(static_cast<uint64_t>(sDelivered + sBeltItems) * 10 >=
+                 static_cast<uint64_t>(spawned - 1) * 8);
+    }
+
     JV_REPORT();
 }

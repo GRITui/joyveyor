@@ -39,6 +39,11 @@ void ItemPool::remove(uint32_t id) {
     }
 }
 
+void ItemPool::reset() {
+    size_ = 0;
+    liveCount_ = 0;
+}
+
 void ItemPool::compact() {
     int32_t w = 0;
     for (int32_t r = 0; r < size_; ++r) {

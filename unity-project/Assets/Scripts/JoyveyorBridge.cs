@@ -35,6 +35,32 @@ public static class JoyveyorBridge
     [DllImport("jv_unity")] public static extern int jv_remove_node(IntPtr w, uint nodeId);
     [DllImport("jv_unity")] public static extern uint jv_belt_at_cell(IntPtr w, int x, int y);
     [DllImport("jv_unity")] public static extern uint jv_node_at_cell(IntPtr w, int x, int y);
+    [DllImport("jv_unity")] public static extern IntPtr jv_save_layout(IntPtr w);
+    [DllImport("jv_unity", CharSet = CharSet.Ansi)] public static extern int jv_load_layout(IntPtr w, string text);
+    [DllImport("jv_unity", CharSet = CharSet.Ansi)] public static extern IntPtr jv_last_placement_error(IntPtr w);
+    [DllImport("jv_unity")] public static extern void jv_free(IntPtr p);
+
+    // Serialize the current layout; frees the C buffer before returning.
+    public static string SaveLayout(IntPtr world)
+    {
+        IntPtr p = jv_save_layout(world);
+        if (p == IntPtr.Zero) return string.Empty;
+        try { return Marshal.PtrToStringAnsi(p); }
+        finally { jv_free(p); }
+    }
+
+    // Load a layout (1 = ok, 0 = rejected, world untouched).
+    public static bool LoadLayout(IntPtr world, string text)
+    {
+        return jv_load_layout(world, text) == 1;
+    }
+
+    // Human-readable reason for the last rejected placement ("" if ok).
+    public static string LastPlacementError(IntPtr world)
+    {
+        IntPtr p = jv_last_placement_error(world);
+        return p == IntPtr.Zero ? string.Empty : Marshal.PtrToStringAnsi(p);
+    }
 
     public static int GetSnapshot(IntPtr world, float alpha, int maxItems)
     {

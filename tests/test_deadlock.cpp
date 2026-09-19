@@ -36,9 +36,10 @@ int main() {
         }
     }
 
-    // 3) Runtime jam: belt feeding an already-full sink guarantees zero
-    // progress once the item reaches the exit; jamTicks must climb to the
-    // threshold and isDeadlocked() must trip.
+    // 3) Healthy line feeding an already-full sink: items park at minGap
+    // (zero movement) but the network is NOT cyclic, so it must NOT report
+    // a deadlock. (This case previously asserted deadlocked==true — that was
+    // the t_6509d19d false positive: the jam detector didn't check hasCycle.)
     {
         SimConfig cfg;
         cfg.beltSpeed = 10.0f;
@@ -55,9 +56,9 @@ int main() {
             JV_CHECK(w.checkInvariants());
             if (w.isDeadlocked()) { deadlocked = true; break; }
         }
-        JV_CHECK(deadlocked);
+        JV_CHECK(!deadlocked);
         const uint32_t netId = w.networkOfBelt(belt);
-        JV_CHECK(w.network(netId).jamTicks >= kDeadlockJamTicks);
+        JV_CHECK(w.network(netId).jamTicks < kDeadlockJamTicks);
     }
 
     JV_REPORT();

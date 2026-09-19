@@ -42,6 +42,9 @@ public:
     // Mark an item dead (still occupies its slot until compact()).
     void remove(uint32_t id);
 
+    // Drop every item (load/reset path).
+    void reset();
+
     // Shift live items to the front; reassigns dense ids (id = new index).
     // nextOnBelt links are rewritten for surviving items.
     void compact();
