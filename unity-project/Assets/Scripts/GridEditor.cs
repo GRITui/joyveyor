@@ -220,7 +220,8 @@ public class GridEditor : MonoBehaviour
                 Fail("bad save file (visuals)");
                 return;
             }
-            pieces = loaded;
+            pieces.Clear();
+            pieces.AddRange(loaded);
             RebuildVisuals();
             Fail("loaded " + pieces.Count + " pieces");
         }
