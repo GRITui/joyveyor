@@ -1,0 +1,10 @@
+#JVLG1
+name Bottleneck
+grid 24 16
+time_limit 1200
+par_time 900
+par_pieces 4
+budget 6
+S 0 0 15
+K 3 3 6
+K 8 0 14

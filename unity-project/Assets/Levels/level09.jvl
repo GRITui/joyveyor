@@ -1,0 +1,11 @@
+#JVLG1
+name Overload
+grid 24 16
+time_limit 1500
+par_time 1200
+par_pieces 7
+budget 11
+S 0 0 10
+K 8 0 12
+K 8 3 12
+K 3 7 8

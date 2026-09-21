@@ -1,0 +1,11 @@
+#JVLG1
+name Crossroads
+grid 24 16
+time_limit 1200
+par_time 840
+par_pieces 7
+budget 9
+S 0 2 15
+S 8 2 15
+K 7 6 8
+K 4 9 8

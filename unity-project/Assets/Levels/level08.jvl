@@ -1,0 +1,12 @@
+#JVLG1
+name Gauntlet
+grid 24 16
+time_limit 1500
+par_time 1050
+par_pieces 10
+budget 12
+S 0 2 15
+S 8 2 15
+K 10 6 10
+K 7 9 10
+K 4 9 6

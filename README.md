@@ -192,3 +192,41 @@ joyveyor/
 └── docs/          # this plan, ADRs
 ```
 
+
+## 8. Levels (#JVLG1)
+
+The v1.0 game is a conveyor-belt logistics puzzle: per level, build a network
+that fills every sink's quota before the countdown expires. Levels are authored
+text files in the `#JVLG1` format (see `core/level.h`), one per level:
+
+```
+#JVLG1
+name       First Delivery
+grid       24 16
+time_limit 900      # ticks (30 s @ 30 Hz)
+par_time   450      # 2★ condition (ticks)
+par_pieces 3        # 3★ condition (player pieces)
+budget     4        # max player-placed pieces
+# --- locked pieces (pre-placed, not movable/deletable) ---
+S 0 0 15            # source, spawn period 15 ticks
+K 5 0 10            # sink, quota 10
+```
+
+- **Locked pieces** use the same `S/K/T/M/B` grammar as `#JVL1` (S carries a
+  spawn period). They are the level *setup*; the game layer marks them
+  non-movable/non-deletable (a flag, not a sim change).
+- **Player pieces** are built in-game within `budget` and are *not* stored in
+  the level file.
+- **Win:** every sink's `storageCount >= storageCapacity` before `time_limit`.
+  **Stars:** 1★ win · 2★ win in ≤ `par_time` · 3★ win in ≤ `par_time` AND ≤
+  `par_pieces` player pieces.
+
+**Files:** `unity-project/Assets/Levels/levelNN.jvl` (10 levels) +
+`unity-project/Assets/Levels/reference/levelNN.sol` (the reference solution —
+the player pieces that win each level at 3★).
+
+**Winnability is enforced by `tests/test_levels.cpp`:** for each level it loads
+the locked pieces + reference solution into a fresh `World`, advances to
+`time_limit`, and asserts every sink is full before the limit *and* the
+reference hits `par_time`. A level that can't be won this way fails the build —
+author the level/reference to satisfy the test, never loosen the assertion.

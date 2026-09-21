@@ -12,20 +12,17 @@ namespace {
 
 constexpr const char* kHeader = "#JVL1";
 
-// One parsed placement op (nodes first, then belts, in file order).
-struct Op {
-    char tag;
-    int32_t a, b, c, d, e;  // per-tag fields (see save.h format)
-};
-
 bool parseDir(int32_t v, Dir& out) {
     if (v < 0 || v > 3) return false;
     out = static_cast<Dir>(v);
     return true;
 }
 
+
+}  // namespace
+
 // Parse one line into an Op. Returns false on malformed input.
-bool parseLine(const char* line, Op& op) {
+bool parsePlacementLine(const char* line, PlacementOp& op) {
     char buf[128];
     std::snprintf(buf, sizeof(buf), "%s", line);
     char* save = nullptr;
@@ -84,8 +81,6 @@ bool parseLine(const char* line, Op& op) {
     }
 }
 
-}  // namespace
-
 std::string saveLayout(const World& w) {
     std::string s;
     s.reserve(1024);
@@ -129,7 +124,7 @@ std::string saveLayout(const World& w) {
 
 bool loadLayout(World& w, const std::string& text) {
     // 1) Parse + validate every line first (atomic: world untouched on error).
-    std::vector<Op> ops;
+    std::vector<PlacementOp> ops;
     ops.reserve(64);
     const char* p = text.c_str();
     bool first = true;
@@ -152,15 +147,15 @@ bool loadLayout(World& w, const std::string& text) {
             if (std::strcmp(line, kHeader) != 0) return false;
             continue;
         }
-        Op op;
-        if (!parseLine(line, op)) return false;
+        PlacementOp op;
+        if (!parsePlacementLine(line, op)) return false;
         ops.push_back(op);
     }
     if (first) return false;  // no header → empty/invalid
 
     // 2) Apply to a fresh world.
     w.reset();
-    for (const Op& op : ops) {
+    for (const PlacementOp& op : ops) {
         uint32_t id;
         switch (op.tag) {
             case 'S':

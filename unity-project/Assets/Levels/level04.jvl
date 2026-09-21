@@ -1,0 +1,11 @@
+#JVLG1
+name Balance
+grid 24 16
+time_limit 1200
+par_time 750
+par_pieces 7
+budget 10
+S 0 0 15
+K 8 0 8
+K 6 3 4
+K 3 6 4

@@ -1,0 +1,10 @@
+#JVLG1
+name Two Flows
+grid 24 16
+time_limit 900
+par_time 600
+par_pieces 4
+budget 6
+S 0 2 15
+S 8 2 15
+K 4 6 16

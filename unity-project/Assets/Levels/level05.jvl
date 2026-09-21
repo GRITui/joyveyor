@@ -1,0 +1,9 @@
+#JVLG1
+name Long Haul
+grid 24 16
+time_limit 1200
+par_time 660
+par_pieces 1
+budget 3
+S 0 0 15
+K 16 0 12

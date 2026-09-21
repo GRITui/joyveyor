@@ -8,7 +8,7 @@
 // Format: `#JVL1` header, then one element per line. Nodes first, then belts
 // (so belt placement can link to already-placed nodes; belt-to-belt links are
 // derived from geometry at placement time).
-//   S x y           source
+//   S x y [period]  source (period omitted = 15, backward compatible)
 //   K x y cap       sink
 //   T x y a b       splitter (outA, outB)
 //   M x y a b o     merger (inA, inB, out)
@@ -31,5 +31,18 @@ std::string saveLayout(const World& w);
 // Parse + apply a layout string to `w`. Returns true on success (world
 // replaced by the saved layout); false on malformed input (world unchanged).
 bool loadLayout(World& w, const std::string& text);
+
+// ---- Shared placement-line grammar (used by loadLayout and the #JVLG1
+// level loader). One parsed placement op (nodes first, then belts, in file
+// order). ----
+struct PlacementOp {
+    char tag = 0;
+    int32_t a = 0, b = 0, c = 0, d = 0, e = 0;  // per-tag fields (see above)
+};
+
+// Parse one placement line (S/K/T/M/B) into an op. Returns false on malformed
+// input. The line is copied internally (strtok-based), so it need not be
+// NUL-terminated beyond its length.
+bool parsePlacementLine(const char* line, PlacementOp& op);
 
 }  // namespace jv

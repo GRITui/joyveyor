@@ -1,0 +1,9 @@
+#JVLG1
+name First Delivery
+grid 24 16
+time_limit 900
+par_time 450
+par_pieces 3
+budget 4
+S 0 0 15
+K 5 0 10

@@ -1,0 +1,10 @@
+#JVLG1
+name The Turn
+grid 24 16
+time_limit 900
+par_time 540
+par_pieces 5
+budget 7
+S 0 0 15
+K 7 0 5
+K 4 4 5
