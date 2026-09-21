@@ -20,6 +20,11 @@ foreach(test_src ${JV_TEST_SOURCES})
   get_filename_component(test_name ${test_src} NAME_WE)
   add_executable(${test_name} ${test_src})
   target_link_libraries(${test_name} PRIVATE joyveyor_core)
+  # The session-bridge test drives the C API (unity/jv_unity_bridge.cpp).
+  if(test_name STREQUAL "test_bridge_session")
+    target_sources(${test_name} PRIVATE unity/jv_unity_bridge.cpp)
+    target_include_directories(${test_name} PRIVATE . unity)
+  endif()
   add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
 

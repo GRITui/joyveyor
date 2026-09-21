@@ -13,6 +13,9 @@ public class JoyveyorRunner : MonoBehaviour
     public int itemCount;
     public ulong tickCount;
     public bool paused;
+    // When true, the host (GameSession) drives jv_world_tick itself; the
+    // runner must not also advance the world (double-advance = 2x speed).
+    public bool externallyTicked;
 
     private IntPtr world = IntPtr.Zero;
 
@@ -57,7 +60,7 @@ public class JoyveyorRunner : MonoBehaviour
 
     void FixedUpdate()
     {
-        if (world != IntPtr.Zero && !paused)
+        if (world != IntPtr.Zero && !paused && !externallyTicked)
             JoyveyorBridge.jv_world_advance(world, Time.fixedDeltaTime);
     }
 

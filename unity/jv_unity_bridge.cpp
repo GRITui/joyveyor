@@ -24,6 +24,14 @@ void jv_world_advance(JVWorld w, float seconds) {
     if (w) world(w)->advance(seconds);
 }
 
+void jv_world_reset(JVWorld w) {
+    if (w) world(w)->reset();
+}
+
+void jv_world_tick(JVWorld w) {
+    if (w) world(w)->tick();
+}
+
 uint64_t jv_world_tick_count(JVWorld w) {
     return w ? world(w)->tickCount() : 0;
 }

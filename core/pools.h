@@ -115,9 +115,15 @@ public:
     DensePool& operator=(const DensePool&) = delete;
 
     // Append a default-constructed element; returns its dense id.
+    // The slot is value-initialized: after reset()+compact() the pool shrinks
+    // to 0 and a later add() reuses the same memory — without e = T() the
+    // element would carry stale fields from the previous occupant (e.g. a
+    // source's outputs[0] still pointing at a long-gone belt), which breaks
+    // placement on the reset+re-place path (game session level load/retry).
     uint32_t add() {
         if (size_ >= capacity_) grow();
         T& e = data_[size_];
+        e = T();
         e.id = static_cast<uint32_t>(size_);
         alive_[size_] = 1;
         return static_cast<uint32_t>(size_++);

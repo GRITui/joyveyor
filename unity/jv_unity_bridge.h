@@ -13,6 +13,8 @@ typedef void* JVWorld;
 JVWorld jv_world_create(void);
 void jv_world_destroy(JVWorld w);
 void jv_world_advance(JVWorld w, float seconds);
+void jv_world_reset(JVWorld w);
+void jv_world_tick(JVWorld w);
 uint64_t jv_world_tick_count(JVWorld w);
 uint32_t jv_place_belt(JVWorld w, int32_t x, int32_t y, uint8_t dir, int32_t len);
 uint32_t jv_place_source(JVWorld w, int32_t x, int32_t y, uint16_t spawnPeriod);

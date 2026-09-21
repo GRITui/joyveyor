@@ -16,6 +16,8 @@ public static class JoyveyorBridge
     [DllImport("jv_unity")] public static extern IntPtr jv_world_create();
     [DllImport("jv_unity")] public static extern void jv_world_destroy(IntPtr w);
     [DllImport("jv_unity")] public static extern void jv_world_advance(IntPtr w, float seconds);
+    [DllImport("jv_unity")] public static extern void jv_world_reset(IntPtr w);
+    [DllImport("jv_unity")] public static extern void jv_world_tick(IntPtr w);
     [DllImport("jv_unity")] public static extern ulong jv_world_tick_count(IntPtr w);
     [DllImport("jv_unity")] public static extern uint jv_place_belt(IntPtr w, int x, int y, byte dir, int len);
     [DllImport("jv_unity")] public static extern uint jv_place_source(IntPtr w, int x, int y, ushort spawnPeriod);
