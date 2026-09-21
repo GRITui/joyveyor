@@ -248,7 +248,7 @@ uint32_t World::placeBelt(int32_t x, int32_t y, Dir dir, int len) {
     return id;
 }
 
-uint32_t World::placeSource(GridCell cell) {
+uint32_t World::placeSource(GridCell cell, uint16_t spawnPeriod) {
     lastPlacementError_.clear();
     if (!cellFree(cell)) { lastPlacementError_ = "cell occupied"; return INVALID_ID; }
     const uint32_t id = nodes_.add();
@@ -258,6 +258,7 @@ uint32_t World::placeSource(GridCell cell) {
     n.storageCapacity = 0;
     n.storageCount = 0;
     n.spawnTimer = 0;
+    n.spawnPeriod = spawnPeriod > 0 ? spawnPeriod : 15;
     // Re-link belts placed before this node (order-independent connections).
     for (int32_t i = 0; i < belts_.size(); ++i) {
         if (!belts_.alive(i)) continue;
@@ -851,8 +852,7 @@ void World::tickBeltsMove() {
 }
 
 void World::tickSourcesSpawn() {
-    // Fixed spawn period: 15 ticks == 0.5s at the default 30 Hz tick rate.
-    constexpr uint16_t kSpawnPeriodTicks = 15;
+    // Per-source period (Node::spawnPeriod, default 15 ticks == 0.5s @ 30 Hz).
     for (int32_t i = 0; i < nodes_.size(); ++i) {
         if (!nodes_.alive(i)) continue;
         Node& n = nodes_[i];
@@ -869,7 +869,9 @@ void World::tickSourcesSpawn() {
             b.headItem = it;
             ++b.occupancy;
             ++spawnedCount_;
-            n.spawnTimer = kSpawnPeriodTicks;
+            // period-1 so the next spawn lands exactly spawnPeriod ticks
+            // later (timer decrements once per tick before the spawn check).
+            n.spawnTimer = n.spawnPeriod - 1;
         }
     }
 }

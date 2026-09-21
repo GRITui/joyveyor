@@ -134,7 +134,7 @@ public class GridEditor : MonoBehaviour
         Kind kind;
         switch (tool)
         {
-            case Tool.Source: id = JoyveyorBridge.jv_place_source(runner.World, x, y); kind = Kind.Source; break;
+            case Tool.Source: id = JoyveyorBridge.jv_place_source(runner.World, x, y, 15); kind = Kind.Source; break;
             case Tool.Sink: id = JoyveyorBridge.jv_place_sink(runner.World, x, y, (ushort)sinkCapacity); kind = Kind.Sink; break;
             case Tool.Splitter: id = JoyveyorBridge.jv_place_splitter(runner.World, x, y, JoyveyorBridge.DirE, JoyveyorBridge.DirS); kind = Kind.Splitter; break;
             case Tool.Merger: id = JoyveyorBridge.jv_place_merger(runner.World, x, y, JoyveyorBridge.DirS, JoyveyorBridge.DirW, JoyveyorBridge.DirE); kind = Kind.Merger; break;

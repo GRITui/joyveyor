@@ -29,7 +29,7 @@ public class JoyveyorRunner : MonoBehaviour
     // that accepts it; merger inDirs match the feeding belts' travel dirs.
     public void PlaceDemoLevel()
     {
-        Check(JoyveyorBridge.jv_place_source(world, 0, 0), "source (0,0)");
+        Check(JoyveyorBridge.jv_place_source(world, 0, 0, 15), "source (0,0)");
         Check(JoyveyorBridge.jv_place_belt(world, 1, 0, JoyveyorBridge.DirE, 5), "belt (1,0) dir E len 5");
         Check(JoyveyorBridge.jv_place_splitter(world, 6, 0, JoyveyorBridge.DirE, JoyveyorBridge.DirS), "splitter (6,0) outA=E outB=S");
         Check(JoyveyorBridge.jv_place_belt(world, 7, 0, JoyveyorBridge.DirE, 4), "belt (7,0) dir E len 4");

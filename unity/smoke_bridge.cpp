@@ -8,7 +8,7 @@ int main() {
     assert(w);
 
     // Demo level (same as JoyveyorRunner.cs).
-    assert(jv_place_source(w, 0, 0) != 0xFFFFFFFFu);
+    assert(jv_place_source(w, 0, 0, 15) != 0xFFFFFFFFu);
     assert(jv_place_belt(w, 1, 0, 1 /*E*/, 5) != 0xFFFFFFFFu);
     assert(jv_place_splitter(w, 6, 0, 1 /*E*/, 2 /*S*/) != 0xFFFFFFFFu);
     assert(jv_place_belt(w, 7, 0, 1 /*E*/, 4) != 0xFFFFFFFFu);
@@ -51,7 +51,7 @@ int main() {
     // directly is a test helper, not in the C API. Use the real flow:
     // source (4,3) → belt (3,3) W len 2 → sink (1,3)? sink is at (0,3).
     // belt (3,3) W len 2 exitCell = (1,3). Place sink2 at (1,3):
-    uint32_t src2 = jv_place_source(w, 4, 3);
+    uint32_t src2 = jv_place_source(w, 4, 3, 15);
     assert(src2 != 0xFFFFFFFFu);
     uint32_t belt2 = jv_place_belt(w, 3, 3, 3 /*W*/, 2);
     assert(belt2 != 0xFFFFFFFFu);

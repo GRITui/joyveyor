@@ -33,14 +33,26 @@ uint32_t jv_place_belt(JVWorld w, int32_t x, int32_t y, uint8_t dir, int32_t len
     return world(w)->placeBelt(x, y, static_cast<jv::Dir>(dir), static_cast<int>(len));
 }
 
-uint32_t jv_place_source(JVWorld w, int32_t x, int32_t y) {
+uint32_t jv_place_source(JVWorld w, int32_t x, int32_t y, uint16_t spawnPeriod) {
     if (!w) return jv::INVALID_ID;
-    return world(w)->placeSource(jv::GridCell{x, y});
+    return world(w)->placeSource(jv::GridCell{x, y}, spawnPeriod);
 }
 
 uint32_t jv_place_sink(JVWorld w, int32_t x, int32_t y, uint16_t capacity) {
     if (!w) return jv::INVALID_ID;
     return world(w)->placeSink(jv::GridCell{x, y}, capacity);
+}
+
+void jv_sink_storage(JVWorld w, uint32_t sinkId, uint16_t* count, uint16_t* cap) {
+    if (!count || !cap) return;
+    *count = 0;
+    *cap = 0;
+    if (!w) return;
+    jv::World* wd = world(w);
+    if (!wd->nodeAlive(sinkId) || wd->node(sinkId).kind != jv::NodeKind::Sink) return;
+    const jv::Node& n = wd->node(sinkId);
+    *count = n.storageCount;
+    *cap = n.storageCapacity;
 }
 
 uint32_t jv_place_splitter(JVWorld w, int32_t x, int32_t y, uint8_t outA, uint8_t outB) {

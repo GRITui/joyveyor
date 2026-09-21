@@ -70,6 +70,7 @@ struct Node {
     uint16_t storageCount = 0;     // Sink: items stored (delivered)
     bool autoConsume = false;      // Sink: consume 1 stored item / tick (step 1)
     uint16_t spawnTimer = 0;       // Source: fixed-tick countdown to next spawn
+    uint16_t spawnPeriod = 15;     // Source: ticks between spawns (default 15 = 0.5s @ 30Hz)
 
     // Connections (dense belt ids). Convention:
     //   Source:   outputs[0] = fed belt
@@ -148,7 +149,7 @@ public:
     // Rejects: len < 1, cell overlap with belts/nodes, incompatible
     // connections, double-occupied node connection slots.
     uint32_t placeBelt(int32_t x, int32_t y, Dir dir, int len);
-    uint32_t placeSource(GridCell cell);
+    uint32_t placeSource(GridCell cell, uint16_t spawnPeriod = 15);
     uint32_t placeSink(GridCell cell, uint16_t capacity);
     uint32_t placeSplitter(GridCell cell, Dir outA, Dir outB);
     uint32_t placeMerger(GridCell cell, Dir inA, Dir inB, Dir out);
@@ -215,6 +216,7 @@ public:
     const Node& node(uint32_t id) const { return *nodes_.data(id); }
     int32_t beltCount() const { return belts_.size(); }
     int32_t nodeCount() const { return nodes_.size(); }
+    bool nodeAlive(uint32_t id) const { return nodes_.alive(id); }
     // Human-readable reason for the last rejected placement ("" if the last
     // placement succeeded). Editor HUD shows this instead of a bare
     // "placement rejected" (t_e11c9547).

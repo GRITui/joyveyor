@@ -44,9 +44,11 @@ bool parseLine(const char* line, Op& op) {
     }
 
     switch (op.tag) {
-        case 'S': {  // S x y
-            if (n != 2 || vals[0] < 0 || vals[1] < 0) return false;
+        case 'S': {  // S x y [period]  (period omitted = 15, backward compatible)
+            if (n < 2 || n > 3 || vals[0] < 0 || vals[1] < 0) return false;
             op.a = vals[0]; op.b = vals[1];
+            op.c = (n == 3) ? vals[2] : 15;
+            if (op.c < 1) return false;
             return true;
         }
         case 'K': {  // K x y cap
@@ -95,7 +97,8 @@ std::string saveLayout(const World& w) {
         char line[96];
         switch (n.kind) {
             case NodeKind::Source:
-                std::snprintf(line, sizeof(line), "S %d %d\n", n.cell.x, n.cell.y);
+                std::snprintf(line, sizeof(line), "S %d %d %u\n", n.cell.x, n.cell.y,
+                              n.spawnPeriod);
                 break;
             case NodeKind::Sink:
                 std::snprintf(line, sizeof(line), "K %d %d %u\n", n.cell.x, n.cell.y,
@@ -161,7 +164,7 @@ bool loadLayout(World& w, const std::string& text) {
         uint32_t id;
         switch (op.tag) {
             case 'S':
-                id = w.placeSource(GridCell{op.a, op.b});
+                id = w.placeSource(GridCell{op.a, op.b}, static_cast<uint16_t>(op.c));
                 break;
             case 'K':
                 id = w.placeSink(GridCell{op.a, op.b}, static_cast<uint16_t>(op.c));
