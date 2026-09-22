@@ -5,6 +5,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <set>
 
 namespace {
 inline jv::World* world(JVWorld w) { return static_cast<jv::World*>(w); }
@@ -102,6 +103,46 @@ int32_t jv_snapshot_items(JVWorld w, float alpha, float* itemPosXY, uint32_t* it
         itemPosXY[2 * i] = snap.itemPos[i].x;
         itemPosXY[2 * i + 1] = snap.itemPos[i].y;
         itemIds[i] = snap.itemId[i];
+    }
+    return n;
+}
+
+int jv_belt_geometry(JVWorld w, int32_t x, int32_t y, uint8_t* dir, int32_t* len) {
+    if (!w || !dir || !len) return 0;
+    *dir = 0;
+    *len = 0;
+    jv::World* wd = world(w);
+    uint32_t id = wd->beltAtCell(x, y);
+    if (id == jv::INVALID_ID) return 0;
+    const jv::Belt& b = wd->belt(id);
+    *dir = static_cast<uint8_t>(b.dir);
+    *len = static_cast<int32_t>(b.lenCells);
+    return 1;
+}
+
+int jv_jammed_cells(JVWorld w, int32_t* cellsXY, int32_t maxCells) {
+    if (!w || !cellsXY || maxCells < 1) return 0;
+    jv::World* wd = world(w);
+    std::set<jv::GridCell> cells;
+    for (int32_t i = 0; i < wd->beltCount(); ++i) {
+        uint32_t bid = static_cast<uint32_t>(i);
+        if (!wd->beltAlive(bid)) continue;
+        if (!wd->isDeadlocked(wd->networkOfBelt(bid))) continue;
+        const jv::Belt& b = wd->belt(bid);
+        for (int32_t k = 0; k < b.lenCells; ++k) cells.insert(b.cellAt(k));
+    }
+    for (int32_t i = 0; i < wd->nodeCount(); ++i) {
+        uint32_t nid = static_cast<uint32_t>(i);
+        if (!wd->nodeAlive(nid)) continue;
+        if (!wd->isDeadlocked(wd->node(nid).networkId)) continue;
+        cells.insert(wd->node(nid).cell);
+    }
+    int32_t n = 0;
+    for (const jv::GridCell& c : cells) {
+        if (n >= maxCells) break;
+        cellsXY[n * 2] = c.x;
+        cellsXY[n * 2 + 1] = c.y;
+        ++n;
     }
     return n;
 }

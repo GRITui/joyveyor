@@ -33,6 +33,12 @@ int jv_check_invariants(JVWorld w);
 int jv_remove_belt(JVWorld w, uint32_t beltId);
 int jv_remove_node(JVWorld w, uint32_t nodeId);
 uint32_t jv_belt_at_cell(JVWorld w, int32_t x, int32_t y);
+// Belt geometry at a cell (1 = belt present, fills dir + lenCells; 0 = none).
+int jv_belt_geometry(JVWorld w, int32_t x, int32_t y, uint8_t* dir, int32_t* len);
+// Every cell occupied by a piece (belt cell or node cell) in a deadlocked
+// (jammed) network, as packed (x,y) pairs. Returns the cell count written;
+// writes at most maxCells pairs.
+int jv_jammed_cells(JVWorld w, int32_t* cellsXY, int32_t maxCells);
 uint32_t jv_node_at_cell(JVWorld w, int32_t x, int32_t y);
 char* jv_save_layout(JVWorld w);   // malloc'd; free with jv_free
 int jv_load_layout(JVWorld w, const char* text);  // 1 ok / 0 rejected (world untouched)

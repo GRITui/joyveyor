@@ -217,6 +217,7 @@ public:
     int32_t beltCount() const { return belts_.size(); }
     int32_t nodeCount() const { return nodes_.size(); }
     bool nodeAlive(uint32_t id) const { return nodes_.alive(id); }
+    bool beltAlive(uint32_t id) const { return belts_.alive(id); }
     // Human-readable reason for the last rejected placement ("" if the last
     // placement succeeded). Editor HUD shows this instead of a bare
     // "placement rejected" (t_e11c9547).

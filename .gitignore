@@ -36,3 +36,4 @@ Saved/
 *.log
 profiling/
 saves/
+mono_crash.*.json

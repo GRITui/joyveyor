@@ -29,6 +29,9 @@ struct GridCell {
 
     bool operator==(const GridCell& o) const { return x == o.x && y == o.y; }
     bool operator!=(const GridCell& o) const { return !(*this == o); }
+    bool operator<(const GridCell& o) const {
+        return x != o.x ? x < o.x : y < o.y;
+    }
 };
 
 // ---- Item lifecycle state (README §2.1) ----
