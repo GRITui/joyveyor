@@ -13,6 +13,13 @@ public static class JoyveyorBridge
     public static float[] LastPosXY { get; private set; }
     public static uint[] LastIds { get; private set; }
 
+    // Sprint 7 perf: the snapshot arrays are reused across frames instead of
+    // being reallocated on every GetSnapshot call (previously a fresh
+    // float[maxItems*2] + uint[maxItems] every LateUpdate — a steady per-frame
+    // allocation in the update path). Grown only if a larger maxItems is asked.
+    static float[] cachedPosXY;
+    static uint[] cachedIds;
+
     [DllImport("jv_unity")] public static extern IntPtr jv_world_create();
     [DllImport("jv_unity")] public static extern void jv_world_destroy(IntPtr w);
     [DllImport("jv_unity")] public static extern void jv_world_advance(IntPtr w, float seconds);
@@ -68,8 +75,14 @@ public static class JoyveyorBridge
 
     public static int GetSnapshot(IntPtr world, float alpha, int maxItems)
     {
-        LastPosXY = new float[maxItems * 2];
-        LastIds = new uint[maxItems];
+        // Reuse the cached arrays (grown only if a larger maxItems is asked)
+        // instead of reallocating every frame — see the field comment above.
+        if (cachedPosXY == null || cachedPosXY.Length < maxItems * 2)
+            cachedPosXY = new float[maxItems * 2];
+        if (cachedIds == null || cachedIds.Length < maxItems)
+            cachedIds = new uint[maxItems];
+        LastPosXY = cachedPosXY;
+        LastIds = cachedIds;
         return jv_snapshot_items(world, alpha, LastPosXY, LastIds, maxItems);
     }
 }

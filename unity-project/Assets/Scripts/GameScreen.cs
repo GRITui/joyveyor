@@ -105,6 +105,50 @@ public class GameScreen : MonoBehaviour
     readonly List<GameObject> sinkBars = new List<GameObject>();
     readonly List<Vector2Int> sinkCells = new List<Vector2Int>();
 
+    // ---- Sprint 7 juice (jv-design-visual-audio §4) ----
+    // All cheap: SpriteRenderer color/scale tweens + pooled quads + camera
+    // transform. No shaders, no per-frame allocations (pools + cached strings).
+    const int MaxSinks = 16;      // sink juice state slots (grid is budget-limited)
+    const int BurstPoolSize = 16; // pooled burst quads (reused; 16 covers 12-16/sink)
+
+    Transform fxRoot;                       // lazily created AFTER Start's child sweep
+    readonly List<SpriteRenderer> beltSrs = new List<SpriteRenderer>(); // belts, for deadlock tint
+
+    // Pooled burst quads + their tween state (-1 = idle, else 0..1 progress).
+    readonly GameObject[] burstPool = new GameObject[BurstPoolSize];
+    readonly SpriteRenderer[] burstSrs = new SpriteRenderer[BurstPoolSize];
+    readonly float[] burstT = new float[BurstPoolSize];
+    readonly float[] burstDur = new float[BurstPoolSize];
+    readonly float[] burstSize = new float[BurstPoolSize];
+    readonly Vector3[] burstVel = new Vector3[BurstPoolSize];
+    readonly Color[] burstCol = new Color[BurstPoolSize];
+    int burstCursor;
+
+    // Per-sink juice: delivery pop (fill-bar 1.0->1.15->1.0), fill flash,
+    // and the last-seen storage count (to detect delivered++ / 50% / 100%).
+    readonly float[] sinkPopT = new float[MaxSinks];
+    readonly float[] sinkFlashT = new float[MaxSinks];
+    readonly bool[] sinkFlashFull = new bool[MaxSinks];
+    readonly int[] lastSinkCount = new int[MaxSinks];
+    bool sinkJuiceInit;
+    int lastJuiceLevel = -1;
+
+    // Camera shake (fail) + full-screen overlays (complete white, fail red).
+    Vector3 camBasePos;
+    float shakeT = -1f;
+    Image whiteOverlay; float whiteT = -1f;
+    Image redFlash;     float redT = -1f;
+    Image vignette;     // Sprint 7: time-low soft red edge (alpha pulses <5s)
+
+    // Cached HUD strings — rebuilt only when the displayed value changes
+    // (Sprint 7 perf: no per-frame string allocation in UpdateHud).
+    string lastTimerStr;
+    string lastDeliveredStr;
+    uint lastTimerRemaining = uint.MaxValue;
+    bool lastTimerLow;
+    int lastDeliveredVal = -1;
+    int lastTotalVal = -1;
+
     // Single-level undo: last place OR delete (spec: one stack level).
     struct UndoRec { public bool isPlace; public char tag; public int a, b, c, d, e; }
     UndoRec? lastAction;
@@ -206,6 +250,7 @@ public class GameScreen : MonoBehaviour
         {
             lastAction = null;
             if (Onboarding != null) Onboarding.Reset(index);
+            if (index != lastJuiceLevel) { lastJuiceLevel = index; ResetJuice(); }
             RefreshVisuals();
             RefreshHud();
         }
@@ -224,14 +269,17 @@ public class GameScreen : MonoBehaviour
         {
             HideOverlays();
             firstDeliveredFired = false;
+            ResetJuice();   // Sprint 7: clear any in-flight FX for the fresh run
         }
         else if (session.phase == GameSession.Phase.Complete)
         {
             ShowCompleteOverlay();
+            OnCompleteJuice();  // Sprint 7: 12-16 quad burst per sink + white fade
         }
         else if (session.phase == GameSession.Phase.Failed)
         {
             ShowFailedOverlay();
+            OnFailJuice();      // Sprint 7: camera shake + red flash
         }
     }
 
@@ -246,6 +294,7 @@ public class GameScreen : MonoBehaviour
         // scene's own Main Camera (z=-10) and GridEditor.
         cam.transform.position = new Vector3(GridW * 0.5f, -GridH * 0.5f, -10f);
         cam.transform.rotation = Quaternion.identity;
+        camBasePos = cam.transform.position;  // Sprint 7: shake returns to here
     }
 
     // ---- Input (mouse-first; keyboard fallback) ----
@@ -315,6 +364,7 @@ public class GameScreen : MonoBehaviour
         if (session == null || session.Level == null) return;
         UpdateHud();
         UpdateSinkFillBars();
+        UpdateJuice();   // Sprint 7: pooled bursts, sink pop/flash, deadlock pulse, shake
     }
 
     void SelectTool(Tool t)
@@ -559,6 +609,7 @@ public class GameScreen : MonoBehaviour
     {
         foreach (var go in visuals) Destroy(go);
         visuals.Clear();
+        beltSrs.Clear();   // Sprint 7: belt renderers are rebuilt in RefreshVisuals
         foreach (var go in sinkBars) Destroy(go);
         sinkBars.Clear();
         sinkCells.Clear();
@@ -594,6 +645,7 @@ public class GameScreen : MonoBehaviour
         {
             go.transform.localPosition = new Vector3(p.x, -p.y, 0f);
         }
+        if (isBelt) beltSrs.Add(sr);  // Sprint 7: deadlock pulse tints these
         return go;
     }
 
@@ -625,6 +677,9 @@ public class GameScreen : MonoBehaviour
     void UpdateSinkFillBars()
     {
         if (session == null || session.Level == null) return;
+        if (runner == null) return;
+        if (!sinkJuiceInit) { InitSinkJuice(); }
+        float dt = Time.deltaTime;
         for (int i = 0; i < sinkBars.Count && i < sinkCells.Count; ++i)
         {
             var s = sinkCells[i];
@@ -633,10 +688,217 @@ public class GameScreen : MonoBehaviour
             ushort count, cap;
             JoyveyorBridge.jv_sink_storage(runner.World, id, out count, out cap);
             float f = cap > 0 ? (float)count / cap : 0f;
-            sinkBars[i].transform.localScale = new Vector3(0.8f * Mathf.Clamp01(f), 0.12f, 1f);
-            sinkBars[i].GetComponent<SpriteRenderer>().color = f >= 1f
-                ? new Color(0.3f, 1f, 0.5f, 0.9f) : new Color(0.3f, 0.9f, 0.5f, 0.9f);
+            int c = count;
+
+            // ---- Sprint 7 juice: delivery pop + fill flash (per sink) ----
+            // Juice state is a fixed MaxSinks pool; sinks beyond it (large
+            // sandbox layouts) still get the fill-bar scale/color, just no pop.
+            float pop = 1f;
+            if (i < MaxSinks)
+            {
+                int prev = lastSinkCount[i];
+                // Delivery pop: a new item landed in this sink (count rose).
+                if (prev >= 0 && c > prev)
+                {
+                    sinkPopT[i] = 0f;
+                    SpawnBurst(s.x, s.y, 5, 0.15f, 0.25f, ColorSuccess);
+                }
+                // Fill flash: one-shot 200 ms brighten when count crosses 50%/100%.
+                if (cap > 0 && prev >= 0)
+                {
+                    bool crossed100 = (c >= cap) && (prev < cap);
+                    bool crossed50 = (c * 2 >= cap) && (prev * 2 < cap);
+                    if (crossed100) { sinkFlashFull[i] = true; sinkFlashT[i] = 0f; }
+                    else if (crossed50) { sinkFlashFull[i] = false; sinkFlashT[i] = 0f; }
+                }
+                lastSinkCount[i] = c;
+
+                // Fill-bar scale: base fill * delivery-pop bump (1.0->1.15->1.0).
+                if (sinkPopT[i] >= 0f)
+                {
+                    sinkPopT[i] += dt;
+                    float p = sinkPopT[i] / 0.15f;
+                    if (p >= 1f) sinkPopT[i] = -1f;
+                    else pop = 1f + 0.15f * Mathf.Sin(Mathf.PI * p);
+                }
+            }
+            // Base fill-bar color (persistent): 0-49% blue, 50-99% lighter, 100% gold.
+            Color col;
+            if (f >= 1f) col = ColorSinkFull;
+            else if (f >= 0.5f) col = new Color(0.55f, 0.75f, 1f, 0.9f);
+            else col = ColorSink;
+            // Transient flash (200 ms) on the 50%/100% crossing.
+            if (i < MaxSinks && sinkFlashT[i] >= 0f)
+            {
+                sinkFlashT[i] += dt;
+                float p = sinkFlashT[i] / 0.2f;
+                if (p >= 1f) sinkFlashT[i] = -1f;
+                else
+                {
+                    float b = Mathf.Sin(Mathf.PI * p);
+                    Color target = sinkFlashFull[i] ? ColorSinkFull : new Color(0.7f, 0.85f, 1f, 1f);
+                    col = Color.Lerp(col, target, 0.7f * b);
+                }
+            }
+            sinkBars[i].transform.localScale = new Vector3(0.8f * Mathf.Clamp01(f) * pop, 0.12f * pop, 1f);
+            sinkBars[i].GetComponent<SpriteRenderer>().color = col;
         }
+    }
+
+    // ---- Sprint 7 juice (jv-design-visual-audio §4) ----
+    // All cheap: SpriteRenderer color/scale tweens + pooled quads + camera
+    // transform. No shaders, no per-frame allocations (pools + cached strings).
+
+    static readonly Color ColorSuccess = new Color(0.13f, 0.77f, 0.37f);   // #22C55E
+    static readonly Color ColorAccent = new Color(0.38f, 0.65f, 0.98f);    // #60A5FA
+    static readonly Color ColorWarning = new Color(0.94f, 0.27f, 0.27f);  // #EF4444
+    static readonly Color ColorSinkFull = new Color(0.98f, 0.75f, 0.14f); // #FBBF24
+
+    void EnsureFxRoot()
+    {
+        if (fxRoot != null) return;
+        var go = new GameObject("JuiceFX");
+        go.transform.SetParent(transform, false);
+        fxRoot = go.transform;
+        for (int i = 0; i < BurstPoolSize; ++i)
+        {
+            var q = new GameObject("burst" + i);
+            q.transform.SetParent(fxRoot, false);
+            var sr = q.AddComponent<SpriteRenderer>();
+            sr.sprite = sprite;
+            q.SetActive(false);
+            burstPool[i] = q;
+            burstSrs[i] = sr;
+            burstT[i] = -1f;
+        }
+    }
+
+    void InitSinkJuice()
+    {
+        for (int i = 0; i < MaxSinks; ++i) { sinkPopT[i] = -1f; sinkFlashT[i] = -1f; sinkFlashFull[i] = false; lastSinkCount[i] = -1; }
+        sinkJuiceInit = true;
+    }
+
+    void ResetJuice()
+    {
+        for (int i = 0; i < BurstPoolSize; ++i)
+        {
+            burstT[i] = -1f;
+            if (burstPool[i] != null) burstPool[i].SetActive(false);
+        }
+        burstCursor = 0;
+        for (int i = 0; i < MaxSinks; ++i) { sinkPopT[i] = -1f; sinkFlashT[i] = -1f; sinkFlashFull[i] = false; lastSinkCount[i] = -1; }
+        sinkJuiceInit = false;
+        shakeT = -1f;
+        whiteT = -1f;
+        redT = -1f;
+        if (whiteOverlay != null) whiteOverlay.color = new Color(1f, 1f, 1f, 0f);
+        if (redFlash != null) redFlash.color = new Color(1f, 0.2f, 0.2f, 0f);
+        if (vignette != null) vignette.color = new Color(1f, 0.2f, 0.2f, 0f);
+        if (cam != null && camBasePos != Vector3.zero) cam.transform.position = camBasePos;
+        lastTimerStr = null;
+        lastDeliveredStr = null;
+    }
+
+    void SpawnBurst(float x, float y, int count, float dur, float size, Color col)
+    {
+        EnsureFxRoot();
+        for (int k = 0; k < count; ++k)
+        {
+            int i = burstCursor;
+            burstCursor = (burstCursor + 1) % BurstPoolSize;
+            float ang = (k / (float)count) * 6.2831853f + (float)UnityEngine.Random.Range(0, 1000) * 0.00628f;
+            float spd = 1.6f + (float)UnityEngine.Random.Range(0, 1000) * 0.8f;
+            burstSrs[i].color = col;
+            burstCol[i] = col;
+            burstPool[i].transform.localPosition = new Vector3(x, -y, 0.3f);
+            burstVel[i] = new Vector3(Mathf.Cos(ang) * spd, Mathf.Sin(ang) * spd, 0f);
+            burstT[i] = 0f;
+            burstDur[i] = dur;
+            burstSize[i] = size;
+            burstPool[i].SetActive(true);
+        }
+    }
+
+    void OnCompleteJuice()
+    {
+        EnsureFxRoot();
+        // 12-16 quad burst per sink (success + ui-accent) + white overlay fade.
+        for (int i = 0; i < sinkCells.Count; ++i)
+        {
+            var s = sinkCells[i];
+            for (int k = 0; k < 14; ++k)
+                SpawnBurst(s.x, s.y, 1, 0.6f, 0.3f, (k & 1) == 0 ? ColorSuccess : ColorAccent);
+        }
+        if (whiteOverlay != null)
+        {
+            whiteOverlay.color = new Color(1f, 1f, 1f, 0.3f);
+            whiteT = 0f;
+        }
+    }
+
+    void OnFailJuice()
+    {
+        shakeT = 0f;
+        if (redFlash != null)
+        {
+            redFlash.color = new Color(1f, 0.2f, 0.2f, 0.35f);
+            redT = 0f;
+        }
+    }
+
+    void UpdateJuice()
+    {
+        float dt = Time.deltaTime;
+        // Pooled burst quads: drift outward, shrink, fade.
+        for (int i = 0; i < BurstPoolSize; ++i)
+        {
+            if (burstT[i] < 0f) continue;
+            burstT[i] += dt;
+            float p = burstDur[i] > 0f ? burstT[i] / burstDur[i] : 1f;
+            if (p >= 1f) { burstT[i] = -1f; burstPool[i].SetActive(false); continue; }
+            var t = burstPool[i].transform;
+            t.localPosition += burstVel[i] * dt;
+            t.localScale = Vector3.one * (burstSize[i] * (1f - p));
+            burstSrs[i].color = new Color(burstCol[i].r, burstCol[i].g, burstCol[i].b, 1f - p);
+        }
+        // Camera shake (fail): ±0.15 cell, exponential decay, 400 ms.
+        if (shakeT >= 0f && cam != null)
+        {
+            shakeT += dt;
+            float p = shakeT / 0.4f;
+            if (p >= 1f) { shakeT = -1f; cam.transform.position = camBasePos; }
+            else
+            {
+                float a = 0.15f * Mathf.Exp(-5f * p);
+                cam.transform.position = camBasePos
+                    + new Vector3(Mathf.Sin(shakeT * 55f), Mathf.Cos(shakeT * 47f), 0f) * a;
+            }
+        }
+        // Complete white overlay: 0.3 -> 0 over 600 ms.
+        if (whiteT >= 0f && whiteOverlay != null)
+        {
+            whiteT += dt;
+            float p = whiteT / 0.6f;
+            if (p >= 1f) { whiteT = -1f; whiteOverlay.color = new Color(1f, 1f, 1f, 0f); }
+            else whiteOverlay.color = new Color(1f, 1f, 1f, 0.3f * (1f - p));
+        }
+        // Fail red flash: 0.35 -> 0 over 400 ms.
+        if (redT >= 0f && redFlash != null)
+        {
+            redT += dt;
+            float p = redT / 0.4f;
+            if (p >= 1f) { redT = -1f; redFlash.color = new Color(1f, 0.2f, 0.2f, 0f); }
+            else redFlash.color = new Color(1f, 0.2f, 0.2f, 0.35f * (1f - p));
+        }
+        // Deadlock pulse: jammed belts lerp toward #EF4444, 500 ms sin period.
+        // (A deadlock jams the whole network, so every belt is jammed.)
+        bool dead = runner != null
+            && JoyveyorBridge.jv_is_deadlocked(runner.World) == 1;
+        float pulse = dead ? 0.5f * (1f - Mathf.Cos(Time.time * 12.566f)) : 0f; // 500 ms period
+        for (int i = 0; i < beltSrs.Count; ++i)
+            if (beltSrs[i] != null)
+                beltSrs[i].color = Color.Lerp(ColorBelt, ColorWarning, pulse);
     }
 
     // ---- HUD (UGUI, Screen Space – Camera) ----
@@ -677,7 +939,24 @@ public class GameScreen : MonoBehaviour
         completeOverlay.SetActive(false);
         failedOverlay = MakeFailedOverlay(canvasGo.transform);
         failedOverlay.SetActive(false);
+        // Sprint 7: full-screen juice overlays (below the end overlays).
+        whiteOverlay = MakeFullScreenImage(canvasGo.transform, "WhiteFlash", new Color(1f, 1f, 1f, 0f));
+        redFlash = MakeFullScreenImage(canvasGo.transform, "RedFlash", new Color(1f, 0.2f, 0.2f, 0f));
+        vignette = MakeFullScreenImage(canvasGo.transform, "Vignette", new Color(1f, 0.2f, 0.2f, 0f));
         bottomBar.SetActive(true);
+    }
+
+    // Full-screen (anchored to all edges) transparent Image for juice flashes.
+    Image MakeFullScreenImage(Transform parent, string name, Color c)
+    {
+        var go = MakeImage(parent, name, c);
+        var rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta = Vector2.zero;
+        go.GetComponent<Image>().raycastTarget = false;  // never blocks input
+        return go.GetComponent<Image>();
     }
 
     static readonly Color BarBg = new Color(0.06f, 0.06f, 0.08f, 0.82f);
@@ -1246,15 +1525,38 @@ public class GameScreen : MonoBehaviour
         var lv = session.Level;
         uint remaining = session.phase == GameSession.Phase.Build ? lv.TimeLimit : lv.TimeLimit - session.Ticks;
         bool low = session.phase == GameSession.Phase.Run && remaining <= 10;
-        string tstr = FormatTime(remaining);
-        if (low) tstr = "!" + tstr;
-        timerText.text = tstr;
-        float pulse = low ? (0.6f + 0.4f * Mathf.Sin(Time.time * 8f)) : 1f;
-        timerText.color = low ? new Color(1f, 0.25f, 0.25f, pulse) : Color.white;
+        // Sprint 7 perf: rebuild the timer string only when the displayed value
+        // (or low flag) changes — not every frame.
+        if (remaining != lastTimerRemaining || low != lastTimerLow)
+        {
+            lastTimerRemaining = remaining;
+            lastTimerLow = low;
+            lastTimerStr = (low ? "!" : "") + FormatTime(remaining);
+            if (timerText != null) timerText.text = lastTimerStr;
+        }
+        // Sprint 7 juice: time-low pulse (timer < 5 s) — scale 1.0->1.2 + soft
+        // red edge. (S4 already tinted the text red at <10 s; the scale + edge
+        // kick in at the spec's <5 s threshold.)
+        bool veryLow = session.phase == GameSession.Phase.Run && remaining <= 5;
+        float pulse = veryLow ? 0.5f * (1f - Mathf.Cos(Time.time * 12.566f)) : 0f; // 500 ms
+        if (timerText != null)
+        {
+            timerText.color = low ? new Color(1f, 0.25f, 0.25f, 1f) : Color.white;
+            timerText.rectTransform.localScale = Vector3.one * (1f + 0.2f * pulse);
+        }
+        if (vignette != null)
+            vignette.color = new Color(1f, 0.2f, 0.2f, 0.22f * pulse);
 
         int delivered = 0, total = 0;
         SumSinks(out delivered, out total);
-        deliveredText.text = delivered + "/" + total;
+        // Sprint 7 perf: rebuild the delivered string only when it changes.
+        if (delivered != lastDeliveredVal || total != lastTotalVal)
+        {
+            lastDeliveredVal = delivered;
+            lastTotalVal = total;
+            lastDeliveredStr = delivered + "/" + total;
+            if (deliveredText != null) deliveredText.text = lastDeliveredStr;
+        }
         // S5: onboarding hint #5 — first item delivered this run (level 1).
         if (!firstDeliveredFired && delivered > 0)
         {
@@ -1283,13 +1585,15 @@ public class GameScreen : MonoBehaviour
         }
     }
 
+    // Sprint 7 perf: reusable scan buffer (no per-frame List allocation).
+    readonly List<Vector2Int> sinkScan = new List<Vector2Int>();
     void SumSinks(out int delivered, out int total)
     {
         delivered = 0; total = 0;
-        var sinks = new List<Vector2Int>();
-        foreach (var p in session.Level.Locked) if (p.Tag == 'K') sinks.Add(new Vector2Int(p.A, p.B));
-        foreach (var p in session.PlayerPieces) if (p.Tag == 'K') sinks.Add(new Vector2Int(p.A, p.B));
-        foreach (var s in sinks)
+        sinkScan.Clear();
+        foreach (var p in session.Level.Locked) if (p.Tag == 'K') sinkScan.Add(new Vector2Int(p.A, p.B));
+        foreach (var p in session.PlayerPieces) if (p.Tag == 'K') sinkScan.Add(new Vector2Int(p.A, p.B));
+        foreach (var s in sinkScan)
         {
             uint id = JoyveyorBridge.jv_node_at_cell(runner.World, s.x, s.y);
             if (id == JoyveyorBridge.InvalidId) continue;

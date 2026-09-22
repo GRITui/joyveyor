@@ -48,6 +48,13 @@ public class GridEditor : MonoBehaviour
     string msg = "";
     float msgTimer = 0f;
 
+    // Sprint 7 perf (named leak): cache the HUD string + the values that feed
+    // it, rebuilding only when one of them changes instead of every frame.
+    string lastHud;
+    Tool lastTool; int lastBeltLen; bool lastPaused;
+    ulong hudSpawned, lastDelivered, lastConsumed, lastTick;
+    int lastItemCount; bool lastDead; bool lastMsgOn; string lastMsg;
+
     // ---- Lifecycle ----
 
     void Start()
@@ -139,9 +146,30 @@ public class GridEditor : MonoBehaviour
     void LateUpdate()
     {
         if (msgTimer > 0f) msgTimer -= Time.deltaTime;
-        hud.text = BuildHudText();
+        if (runner == null || hud == null) return;
+        if (HudInputsChanged()) lastHud = BuildHudText();
+        hud.text = lastHud;
         UpdateAnimations();
         WatchSinkFull();
+    }
+
+    // Sprint 7 perf: true when any value feeding the HUD changed since the last
+    // frame (also true on the very first frame). Updates the last* cache.
+    bool HudInputsChanged()
+    {
+        bool dead = JoyveyorBridge.jv_is_deadlocked(runner.World) == 1;
+        bool msgOn = msgTimer > 0f;
+        bool changed =
+            tool != lastTool || beltLen != lastBeltLen || runner.paused != lastPaused ||
+            runner.spawned != hudSpawned || runner.delivered != lastDelivered ||
+            runner.consumed != lastConsumed || runner.itemCount != lastItemCount ||
+            runner.tickCount != lastTick || dead != lastDead || msgOn != lastMsgOn ||
+            (msgOn && msg != lastMsg);
+        lastTool = tool; lastBeltLen = beltLen; lastPaused = runner.paused;
+        hudSpawned = runner.spawned; lastDelivered = runner.delivered;
+        lastConsumed = runner.consumed; lastItemCount = runner.itemCount;
+        lastTick = runner.tickCount; lastDead = dead; lastMsgOn = msgOn; lastMsg = msg;
+        return changed;
     }
 
     // Sprint 6: belt scroll (frame = tick % 4), source spawn flash (120 ms),
