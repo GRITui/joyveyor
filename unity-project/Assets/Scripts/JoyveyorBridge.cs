@@ -37,6 +37,7 @@ public static class JoyveyorBridge
     [DllImport("jv_unity")] public static extern int jv_remove_belt(IntPtr w, uint beltId);
     [DllImport("jv_unity")] public static extern int jv_remove_node(IntPtr w, uint nodeId);
     [DllImport("jv_unity")] public static extern uint jv_belt_at_cell(IntPtr w, int x, int y);
+    [DllImport("jv_unity")] public static extern int jv_belt_geometry(IntPtr w, int x, int y, out byte dir, out int len);
     [DllImport("jv_unity")] public static extern uint jv_node_at_cell(IntPtr w, int x, int y);
     [DllImport("jv_unity")] public static extern IntPtr jv_save_layout(IntPtr w);
     [DllImport("jv_unity", CharSet = CharSet.Ansi)] public static extern int jv_load_layout(IntPtr w, string text);
