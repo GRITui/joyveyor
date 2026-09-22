@@ -52,6 +52,8 @@ public class GameSession : MonoBehaviour
         }
     }
     JoyveyorRunner joyveyorRunner;
+    JVAudio audio;
+    int lastCountdownSecond = -1;  // last remaining-seconds value we ticked
 
     void OnDestroy()
     {
@@ -96,6 +98,7 @@ public class GameSession : MonoBehaviour
     {
         if (phase != Phase.Build) return;
         Ticks = 0;
+        lastCountdownSecond = -1;
         SetPhase(Phase.Run);
     }
 
@@ -117,8 +120,19 @@ public class GameSession : MonoBehaviour
         if (Ticks >= Level.TimeLimit) return;  // timer: stop advancing at the limit
         JoyveyorBridge.jv_world_tick(runner.World);
         ++Ticks;
+        CountdownTick();
         if (AllQuotasMet()) Complete();
         else if (Ticks >= Level.TimeLimit) Fail();
+    }
+
+    // Last-5-s countdown (Sprint 8): one tick per remaining second 5..2,
+    // the "1" gets the 1200 Hz 100 ms variant.
+    void CountdownTick()
+    {
+        int remaining = (int)(Level.TimeLimit - Ticks);
+        if (remaining <= 0 || remaining > 5 || remaining == lastCountdownSecond) return;
+        lastCountdownSecond = remaining;
+        if (Audio != null) Audio.PlayCountdown(remaining == 1);
     }
 
     // Win check: every sink's storageCount >= storageCapacity (jv_sink_storage).
@@ -148,11 +162,13 @@ public class GameSession : MonoBehaviour
         Stars = ComputeStars(CompletionTicks, PiecesUsed);
         Score = ComputeScore(CompletionTicks, PiecesUsed);
         if (progress != null) progress.RecordWin(LevelIndex, Stars, CompletionTicks, (uint)PiecesUsed, Score);
+        if (Audio != null) Audio.PlayLevelComplete();
         SetPhase(Phase.Complete);
     }
 
     void Fail()
     {
+        if (Audio != null) Audio.PlayLevelFail();
         SetPhase(Phase.Failed);
     }
 
@@ -182,6 +198,7 @@ public class GameSession : MonoBehaviour
         if (playerPieces.Count >= Level.Budget)
         {
             Fail("budget: " + playerPieces.Count + "/" + Level.Budget + " pieces used");
+            if (Audio != null) Audio.PlayInvalid();
             return false;
         }
         if (tag == 'B')
@@ -195,6 +212,7 @@ public class GameSession : MonoBehaviour
                 if (lockedCells.Contains(CellKey(x, y)))
                 {
                     Fail("locked piece: can't build there");
+                    if (Audio != null) Audio.PlayInvalid();
                     return false;
                 }
             }
@@ -202,6 +220,7 @@ public class GameSession : MonoBehaviour
         else if (lockedCells.Contains(CellKey(a, b)))
         {
             Fail("locked piece: can't build there");
+            if (Audio != null) Audio.PlayInvalid();
             return false;
         }
         uint id;
@@ -220,9 +239,11 @@ public class GameSession : MonoBehaviour
         {
             string why = JoyveyorBridge.LastPlacementError(runner.World);
             Fail(why.Length > 0 ? "placement rejected: " + why : "placement rejected");
+            if (Audio != null) Audio.PlayInvalid();
             return false;
         }
         playerPieces.Add(new PlayerPiece { Tag = tag, A = a, B = b, C = c, D = d, E = e });
+        if (Audio != null) Audio.PlayPlace();
         SetPhase(Phase.Build);  // refresh HUD (piece count)
         return true;
     }
@@ -234,7 +255,11 @@ public class GameSession : MonoBehaviour
         int i = playerPieces.FindIndex(p => p.A == a && p.B == b && p.Tag == tag);
         if (i < 0)
         {
-            if (lockedCells.Contains(CellKey(a, b))) Fail("locked piece: can't remove");
+            if (lockedCells.Contains(CellKey(a, b)))
+            {
+                Fail("locked piece: can't remove");
+                if (Audio != null) Audio.PlayInvalid();
+            }
             return false;
         }
         uint id = tag == 'B'
@@ -246,9 +271,11 @@ public class GameSession : MonoBehaviour
         if (!ok)
         {
             Fail("busy (has items)");
+            if (Audio != null) Audio.PlayInvalid();
             return false;
         }
         playerPieces.RemoveAt(i);
+        if (Audio != null) Audio.PlayDelete();
         SetPhase(Phase.Build);
         return true;
     }
@@ -260,6 +287,17 @@ public class GameSession : MonoBehaviour
     public ProgressStore Progress => progress ?? (progress = ProgressStore.Load());
 
     public int TotalStars => Progress.TotalStars();
+
+    // Audio (Sprint 8): null-safe — the sandbox scene has it; headless probes
+    // that add a bare GameSession don't.
+    JVAudio Audio
+    {
+        get
+        {
+            if (audio == null) audio = GetComponent<JVAudio>();
+            return audio;
+        }
+    }
 
     // ---- Internals ----
 

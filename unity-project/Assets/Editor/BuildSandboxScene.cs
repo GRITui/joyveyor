@@ -28,11 +28,35 @@ public static class BuildSandboxScene
         ed.cellSize = 1f;
         ed.sinkCapacity = 50;
 
-        EditorSceneManager.SaveScene(scene, Application.dataPath + "/Scenes/Sandbox.unity");
+        // Sprint 8 audio: runtime player over the baked WAVs.
+        var au = sim.AddComponent<JVAudio>();
+        au.place = LoadClip("place");
+        au.deleteSfx = LoadClip("delete");
+        au.invalid = LoadClip("invalid");
+        au.beltHum = LoadClip("belt_hum");
+        au.delivery = LoadClip("delivery");
+        au.sinkFull = LoadClip("sink_full");
+        au.deadlockAlarm = LoadClip("deadlock_alarm");
+        au.uiClick = LoadClip("ui_click");
+        au.levelComplete = LoadClip("level_complete");
+        au.levelFail = LoadClip("level_fail");
+        au.countdown = LoadClip("countdown");
+        au.countdownFinal = LoadClip("countdown_final");
+        au.ambient = LoadClip("ambient");
 
-        EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(Application.dataPath + "/Scenes/Sandbox.unity", true) };
+        EditorSceneManager.SaveScene(scene, "Assets/Scenes/Sandbox.unity");
+
+        EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene("Assets/Scenes/Sandbox.unity", true) };
 
         Debug.Log("[SandboxScene] saved");
         EditorApplication.Exit(0);
+    }
+
+    static AudioClip LoadClip(string name)
+    {
+        var clip = AssetDatabase.LoadAssetAtPath<AudioClip>("Assets/Audio/SFX/" + name + ".wav");
+        if (clip == null)
+            Debug.LogError("[SandboxScene] missing baked clip: " + name + ".wav (run Joyveyor/Bake Audio)");
+        return clip;
     }
 }

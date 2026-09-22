@@ -35,6 +35,10 @@ public static class AudioSynth
         n += Write("countdown_final.wav", SfxCountdownFinal()); // "1": 1200 Hz, 100 ms
         n += Write("ambient.wav", SfxAmbient());        // 50+100 Hz + LP brown noise, 2 s loop
         AssetDatabase.Refresh();
+        // Belt hum + ambient are the only loops. Unity 6 encodes every audio
+        // asset loopable by default (AudioImporter.loopable is obsolete), so
+        // looping is a runtime choice: JVAudio sets AudioSource.loop only on
+        // those two.
         Debug.Log("[AudioSynth] baked " + n + " WAVs -> " + OutDir);
     }
 

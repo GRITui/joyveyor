@@ -25,6 +25,7 @@ public class GridEditor : MonoBehaviour
     Sprite sprite;
     TextMesh hud;
     SpriteRenderer previewSr;
+    JVAudio audio;
     readonly List<Piece> pieces = new List<Piece>();
     readonly List<GameObject> visuals = new List<GameObject>();
 
@@ -41,6 +42,7 @@ public class GridEditor : MonoBehaviour
         try
         {
             runner = GetComponent<JoyveyorRunner>();
+            audio = GetComponent<JVAudio>();
             cam = Camera.main ?? FindObjectOfType<Camera>();
             if (cam == null)
             {
@@ -74,26 +76,32 @@ public class GridEditor : MonoBehaviour
 
     void Update()
     {
-        if (Input.GetKeyDown(KeyCode.Alpha1)) tool = Tool.Belt;
-        if (Input.GetKeyDown(KeyCode.Alpha2)) tool = Tool.Source;
-        if (Input.GetKeyDown(KeyCode.Alpha3)) tool = Tool.Sink;
-        if (Input.GetKeyDown(KeyCode.Alpha4)) tool = Tool.Splitter;
-        if (Input.GetKeyDown(KeyCode.Alpha5)) tool = Tool.Merger;
-        if (Input.GetKeyDown(KeyCode.Alpha6)) tool = Tool.Delete;
+        if (Input.GetKeyDown(KeyCode.Alpha1)) { tool = Tool.Belt; Click(); }
+        if (Input.GetKeyDown(KeyCode.Alpha2)) { tool = Tool.Source; Click(); }
+        if (Input.GetKeyDown(KeyCode.Alpha3)) { tool = Tool.Sink; Click(); }
+        if (Input.GetKeyDown(KeyCode.Alpha4)) { tool = Tool.Splitter; Click(); }
+        if (Input.GetKeyDown(KeyCode.Alpha5)) { tool = Tool.Merger; Click(); }
+        if (Input.GetKeyDown(KeyCode.Alpha6)) { tool = Tool.Delete; Click(); }
 
-        if (Input.GetKeyDown(KeyCode.W)) dir = JoyveyorBridge.DirN;
-        if (Input.GetKeyDown(KeyCode.D)) dir = JoyveyorBridge.DirE;
-        if (Input.GetKeyDown(KeyCode.S)) dir = JoyveyorBridge.DirS;
-        if (Input.GetKeyDown(KeyCode.A)) dir = JoyveyorBridge.DirW;
+        if (Input.GetKeyDown(KeyCode.W)) { dir = JoyveyorBridge.DirN; Click(); }
+        if (Input.GetKeyDown(KeyCode.D)) { dir = JoyveyorBridge.DirE; Click(); }
+        if (Input.GetKeyDown(KeyCode.S)) { dir = JoyveyorBridge.DirS; Click(); }
+        if (Input.GetKeyDown(KeyCode.A)) { dir = JoyveyorBridge.DirW; Click(); }
 
         if (Input.GetKeyDown(KeyCode.KeypadPlus) || Input.GetKeyDown(KeyCode.Equals))
+        {
             beltLen = Mathf.Clamp(beltLen + 1, 1, 20);
+            Click();
+        }
         if (Input.GetKeyDown(KeyCode.KeypadMinus) || Input.GetKeyDown(KeyCode.Minus))
+        {
             beltLen = Mathf.Clamp(beltLen - 1, 1, 20);
+            Click();
+        }
 
-        if (Input.GetKeyDown(KeyCode.Return)) LoadDemo();
-        if (Input.GetKeyDown(KeyCode.Backspace)) ClearAll();
-        if (Input.GetKeyDown(KeyCode.Space)) runner.paused = !runner.paused;
+        if (Input.GetKeyDown(KeyCode.Return)) { LoadDemo(); Click(); }
+        if (Input.GetKeyDown(KeyCode.Backspace)) { ClearAll(); Click(); }
+        if (Input.GetKeyDown(KeyCode.Space)) { runner.paused = !runner.paused; Click(); }
         if ((Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
             && Input.GetKeyDown(KeyCode.S)) SaveLevel();
         if ((Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
@@ -128,6 +136,7 @@ public class GridEditor : MonoBehaviour
         if (tool == Tool.Belt && !BeltFits(x, y, dir, beltLen))
         {
             Fail("belt off-grid");
+            if (audio != null) audio.PlayInvalid();
             return;
         }
         uint id;
@@ -144,9 +153,11 @@ public class GridEditor : MonoBehaviour
         {
             string why = JoyveyorBridge.LastPlacementError(runner.World);
             Fail(why.Length > 0 ? "placement rejected: " + why : "placement rejected");
+            if (audio != null) audio.PlayInvalid();
             return;
         }
         pieces.Add(new Piece { kind = kind, x = x, y = y, dir = dir, len = kind == Kind.Belt ? beltLen : 1 });
+        if (audio != null) audio.PlayPlace();
         RebuildVisuals();
     }
 
@@ -161,8 +172,9 @@ public class GridEditor : MonoBehaviour
         bool ok = p.kind == Kind.Belt
             ? JoyveyorBridge.jv_remove_belt(runner.World, CellBeltId(p.x, p.y)) == 1
             : JoyveyorBridge.jv_remove_node(runner.World, CellNodeId(p.x, p.y)) == 1;
-        if (!ok) { Fail(p.kind == Kind.Belt ? "belt busy (has items)" : "node busy (has items)"); return; }
+        if (!ok) { Fail(p.kind == Kind.Belt ? "belt busy (has items)" : "node busy (has items)"); if (audio != null) audio.PlayInvalid(); return; }
         pieces.RemoveAt(i);
+        if (audio != null) audio.PlayDelete();
         RebuildVisuals();
     }
 
@@ -434,6 +446,11 @@ public class GridEditor : MonoBehaviour
     {
         msg = m;
         msgTimer = 2f;
+    }
+
+    void Click()
+    {
+        if (audio != null) audio.PlayUiClick();
     }
 
     // ---- Helpers ----
