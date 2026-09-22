@@ -41,6 +41,7 @@ public class GameSession : MonoBehaviour
 
     readonly List<PlayerPiece> playerPieces = new List<PlayerPiece>();
     readonly HashSet<long> lockedCells = new HashSet<long>();
+    readonly HashSet<long> fullSinks = new HashSet<long>();  // sinks at capacity (sink_full SFX edge)
     ProgressStore progress;
 
     JoyveyorRunner runner
@@ -85,6 +86,7 @@ public class GameSession : MonoBehaviour
         Score = 0;
         Paused = false;
         Message = "";
+        fullSinks.Clear();
         if (!Level.ApplyLocked(runner.World))
         {
             Debug.LogError("[GameSession] locked pieces rejected for level " + LevelIndex);
@@ -121,8 +123,31 @@ public class GameSession : MonoBehaviour
         JoyveyorBridge.jv_world_tick(runner.World);
         ++Ticks;
         CountdownTick();
+        WatchSinkFull();
         if (AllQuotasMet()) Complete();
         else if (Ticks >= Level.TimeLimit) Fail();
+    }
+
+    // Sink full (Sprint 8): rising 3-note once per sink as it reaches
+    // capacity (sinks only fill, so the edge fires once per round).
+    void WatchSinkFull()
+    {
+        IntPtr w = runner.World;
+        foreach (var p in Level.Locked)
+            if (p.Tag == 'K') WatchSink(w, p.A, p.B);
+        foreach (var p in playerPieces)
+            if (p.Tag == 'K') WatchSink(w, p.A, p.B);
+    }
+
+    void WatchSink(IntPtr w, int x, int y)
+    {
+        long key = CellKey(x, y);
+        if (fullSinks.Contains(key)) return;
+        if (SinkFull(w, x, y))
+        {
+            fullSinks.Add(key);
+            if (Audio != null) Audio.PlaySinkFull();
+        }
     }
 
     // Last-5-s countdown (Sprint 8): one tick per remaining second 5..2,

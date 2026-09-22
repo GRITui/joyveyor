@@ -28,6 +28,7 @@ public class GridEditor : MonoBehaviour
     JVAudio audio;
     readonly List<Piece> pieces = new List<Piece>();
     readonly List<GameObject> visuals = new List<GameObject>();
+    readonly HashSet<long> fullSinks = new HashSet<long>();  // sinks at capacity (sink_full SFX edge)
 
     Tool tool = Tool.Belt;
     byte dir = JoyveyorBridge.DirE;
@@ -126,6 +127,27 @@ public class GridEditor : MonoBehaviour
     {
         if (msgTimer > 0f) msgTimer -= Time.deltaTime;
         hud.text = BuildHudText();
+        WatchSinkFull();
+    }
+
+    // Sink full (Sprint 8): rising 3-note once per sink at capacity
+    // (sinks only fill, so the edge fires once per loaded layout).
+    void WatchSinkFull()
+    {
+        if (runner == null || runner.World == IntPtr.Zero) return;
+        foreach (var p in pieces)
+        {
+            if (p.kind != Kind.Sink || fullSinks.Contains(CellKey(p.x, p.y))) continue;
+            uint id = JoyveyorBridge.jv_node_at_cell(runner.World, p.x, p.y);
+            if (id == JoyveyorBridge.InvalidId) continue;
+            ushort count, cap;
+            JoyveyorBridge.jv_sink_storage(runner.World, id, out count, out cap);
+            if (count >= cap)
+            {
+                fullSinks.Add(CellKey(p.x, p.y));
+                if (audio != null) audio.PlaySinkFull();
+            }
+        }
     }
 
     // ---- Actions ----
@@ -182,6 +204,7 @@ public class GridEditor : MonoBehaviour
     {
         runner.ResetWorld();
         pieces.Clear();
+        fullSinks.Clear();
         pieces.AddRange(DemoPieces());
         runner.PlaceDemoLevel();
         RebuildVisuals();
@@ -191,6 +214,7 @@ public class GridEditor : MonoBehaviour
     {
         runner.ResetWorld();
         pieces.Clear();
+        fullSinks.Clear();
         RebuildVisuals();
     }
 
@@ -226,6 +250,7 @@ public class GridEditor : MonoBehaviour
                 Fail("bad save file");
                 return;
             }
+            fullSinks.Clear();
             // Rebuild the visual mirror from the same text.
             if (!ParseLayout(text, out List<Piece> loaded))
             {
@@ -480,6 +505,8 @@ public class GridEditor : MonoBehaviour
 
     uint CellBeltId(int x, int y) => JoyveyorBridge.jv_belt_at_cell(runner.World, x, y);
     uint CellNodeId(int x, int y) => JoyveyorBridge.jv_node_at_cell(runner.World, x, y);
+
+    static long CellKey(int x, int y) => ((long)x << 32) | (uint)y;
 
     static string DirName(byte d)
     {
