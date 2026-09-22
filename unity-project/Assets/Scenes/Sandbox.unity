@@ -215,6 +215,8 @@ GameObject:
   - component: {fileID: 1922387335}
   - component: {fileID: 1922387334}
   - component: {fileID: 1922387333}
+  - component: {fileID: 1922387338}
+  - component: {fileID: 1922387339}
   m_Layer: 0
   m_Name: Sim
   m_TagString: Untagged
@@ -275,7 +277,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ItemRenderer
   root: {fileID: 0}
   cellSize: 1
-  itemScale: 0.2
+  itemScale: 0.4
 --- !u!114 &1922387336
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -312,6 +314,19 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1922387338
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1922387332}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 68285741c256341ab82da1567c1f6cf0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AtlasHolder
+  atlas: {fileID: 2800000, guid: 549b9c6d1dc248748cf03511080d2ebe, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

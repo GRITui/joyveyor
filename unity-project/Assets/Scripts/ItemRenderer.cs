@@ -7,10 +7,13 @@ public class ItemRenderer : MonoBehaviour
 
     public Transform root;
     public float cellSize = 1f;
-    public float itemScale = 0.2f;
+    // World units the item occupies (spec §3: 0.4 cell ≈ 24 screen px).
+    // The crate sprite is 16px @ 100 px/unit = 0.16 units, so the pool
+    // scale is itemScale / 0.16 (= 2.5 at 0.4).
+    public float itemScale = 0.4f;
 
     private JoyveyorRunner runner;
-    private Sprite whiteSprite;
+    private Sprite crateSprite;
     private GameObject[] pool;
     private int poolSize;
 
@@ -18,10 +21,10 @@ public class ItemRenderer : MonoBehaviour
     {
         runner = GetComponent<JoyveyorRunner>();
         if (root == null) root = transform;
-        var tex = new Texture2D(1, 1);
-        tex.SetPixel(0, 0, Color.white);
-        tex.Apply();
-        whiteSprite = Sprite.Create(tex, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f));
+        // v1.0 is a SINGLE item type — render the crate (JVArt; falls back
+        // to a white 1x1 if the atlas is missing from a checkout).
+        JVArt.EnsureLoaded();
+        crateSprite = JVArt.Crate;
         poolSize = InitialPoolSize;
         pool = new GameObject[poolSize];
         for (int i = 0; i < poolSize; ++i)
@@ -32,9 +35,9 @@ public class ItemRenderer : MonoBehaviour
     {
         var go = new GameObject("item");
         go.transform.SetParent(root, false);
-        go.transform.localScale = Vector3.one * itemScale;
+        go.transform.localScale = Vector3.one * (itemScale / 0.16f);
         var sr = go.AddComponent<SpriteRenderer>();
-        sr.sprite = whiteSprite;
+        sr.sprite = crateSprite;
         go.SetActive(false);
         return go;
     }

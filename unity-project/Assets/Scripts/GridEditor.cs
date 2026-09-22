@@ -22,13 +22,25 @@ public class GridEditor : MonoBehaviour
 
     JoyveyorRunner runner;
     Camera cam;
-    Sprite sprite;
+    Sprite sprite;  // white 1x1 — delete-tool ghost overlay only
+    Sprite[] beltFrames;
+    Sprite sourceIdle, sourceFlash, sinkBase, splitterSpr, mergerSpr, fillSprite;
     TextMesh hud;
     SpriteRenderer previewSr;
     JVAudio audio;
     readonly List<Piece> pieces = new List<Piece>();
     readonly List<GameObject> visuals = new List<GameObject>();
+    readonly List<SpriteRenderer> beltSrs = new List<SpriteRenderer>();
+    readonly List<SpriteRenderer> sourceSrs = new List<SpriteRenderer>();
+    readonly List<SinkVisual> sinkVisuals = new List<SinkVisual>();
     readonly HashSet<long> fullSinks = new HashSet<long>();  // sinks at capacity (sink_full SFX edge)
+
+    struct SinkVisual { public int x, y; public SpriteRenderer fill; }
+
+    int lastBeltFrame = -1;
+    int lastSourceFrame = -1;
+    ulong lastSpawned;
+    float sourceFlashTimer;  // >0 while the spawn flash is up (120 ms)
 
     Tool tool = Tool.Belt;
     byte dir = JoyveyorBridge.DirE;
@@ -57,6 +69,7 @@ public class GridEditor : MonoBehaviour
             cam.transform.position = new Vector3(GridW * 0.5f, -GridH * 0.5f, 10f);
             cam.transform.rotation = Quaternion.identity;
             sprite = MakeSprite();
+            LoadAtlasSprites();
             BuildGridLines();
             hud = MakeHud();
             previewSr = MakePreview();
@@ -127,7 +140,59 @@ public class GridEditor : MonoBehaviour
     {
         if (msgTimer > 0f) msgTimer -= Time.deltaTime;
         hud.text = BuildHudText();
+        UpdateAnimations();
         WatchSinkFull();
+    }
+
+    // Sprint 6: belt scroll (frame = tick % 4), source spawn flash (120 ms),
+    // sink fill bar (scale = storageCount/capacity, tinted by fill level).
+    void UpdateAnimations()
+    {
+        if (runner == null) return;
+        int tick = (int)runner.tickCount;
+
+        int frame = ((tick % 4) + 4) % 4;
+        if (frame != lastBeltFrame && beltFrames != null)
+        {
+            lastBeltFrame = frame;
+            var spr = beltFrames[frame];
+            for (int i = 0; i < beltSrs.Count; ++i)
+                if (beltSrs[i] != null) beltSrs[i].sprite = spr;
+        }
+
+        // Source spawn flash: a new item appeared at the source -> flash the
+        // source sprite for 120 ms (jv-design-visual-audio §3).
+        if (runner.spawned != lastSpawned)
+        {
+            lastSpawned = runner.spawned;
+            sourceFlashTimer = 0.120f;
+        }
+        if (sourceFlashTimer > 0f) sourceFlashTimer -= Time.deltaTime;
+        int srcFrame = sourceFlashTimer > 0f ? 1 : 0;
+        if (srcFrame != lastSourceFrame && sourceIdle != null)
+        {
+            lastSourceFrame = srcFrame;
+            var spr = srcFrame == 1 ? sourceFlash : sourceIdle;
+            for (int i = 0; i < sourceSrs.Count; ++i)
+                if (sourceSrs[i] != null) sourceSrs[i].sprite = spr;
+        }
+
+        // Sink fill bar: scale Y by storageCount/capacity; tint blue (0-49%),
+        // lighter blue (50-99%), gold #FBBF24 (100%, stays gold while full).
+        for (int i = 0; i < sinkVisuals.Count; ++i)
+        {
+            var sv = sinkVisuals[i];
+            if (sv.fill == null) continue;
+            uint id = JoyveyorBridge.jv_node_at_cell(runner.World, sv.x, sv.y);
+            if (id == JoyveyorBridge.InvalidId) continue;
+            ushort count, cap;
+            JoyveyorBridge.jv_sink_storage(runner.World, id, out count, out cap);
+            float f = cap > 0 ? (float)count / cap : 0f;
+            sv.fill.transform.localScale = new Vector3(0.15f, Mathf.Max(0.001f, 0.15f * f), 1f);
+            sv.fill.color = f >= 1f ? new Color(0.984f, 0.749f, 0.141f, 1f)  // #FBBF24 gold
+                : f >= 0.5f ? new Color(0.376f, 0.647f, 0.980f, 1f)         // #60A5FA lighter
+                : new Color(0.231f, 0.510f, 0.965f, 1f);                    // #3B82F6 blue
+        }
     }
 
     // Sink full (Sprint 8): rising 3-note once per sink at capacity
@@ -205,6 +270,7 @@ public class GridEditor : MonoBehaviour
         runner.ResetWorld();
         pieces.Clear();
         fullSinks.Clear();
+        ResetAnimState();
         pieces.AddRange(DemoPieces());
         runner.PlaceDemoLevel();
         RebuildVisuals();
@@ -215,7 +281,16 @@ public class GridEditor : MonoBehaviour
         runner.ResetWorld();
         pieces.Clear();
         fullSinks.Clear();
+        ResetAnimState();
         RebuildVisuals();
+    }
+
+    void ResetAnimState()
+    {
+        lastBeltFrame = -1;
+        lastSourceFrame = -1;
+        lastSpawned = 0;
+        sourceFlashTimer = 0f;
     }
 
     // ---- Save / Load (README §3.4) ----
@@ -251,6 +326,7 @@ public class GridEditor : MonoBehaviour
                 return;
             }
             fullSinks.Clear();
+            ResetAnimState();
             // Rebuild the visual mirror from the same text.
             if (!ParseLayout(text, out List<Piece> loaded))
             {
@@ -326,22 +402,42 @@ public class GridEditor : MonoBehaviour
 
     // ---- Visuals ----
 
-    static readonly Color ColorBelt = new Color(0.35f, 0.35f, 0.42f);
-    static readonly Color ColorSource = new Color(0.2f, 0.8f, 0.3f);
-    static readonly Color ColorSink = new Color(0.3f, 0.5f, 0.9f);
-    static readonly Color ColorSplitter = new Color(0.95f, 0.6f, 0.2f);
-    static readonly Color ColorMerger = new Color(0.7f, 0.4f, 0.9f);
+    // Atlas sprites (Sprint 6): baked by SpriteBaker into Assets/Art/atlas.png.
+    // Belt = 4-frame E strip (scroll via .sprite = frame tick%4); N/S/W = the
+    // strip rotated. Sink fill = a separate fill-bar SpriteRenderer scaled by
+    // storageCount/capacity, tinted blue / lighter / gold. Source = idle +
+    // 120 ms spawn flash.
+
+    void LoadAtlasSprites()
+    {
+        JVArt.EnsureLoaded();
+        beltFrames = JVArt.BeltFrames;
+        sourceIdle = JVArt.SourceIdle;
+        sourceFlash = JVArt.SourceFlash;
+        sinkBase = JVArt.SinkBase;
+        splitterSpr = JVArt.Splitter;
+        mergerSpr = JVArt.Merger;
+        // Fill bar: a plain 1x1 white sprite tinted at runtime (no extra
+        // atlas region needed; it is clipped to the well by its scale).
+        var tex = new Texture2D(1, 1);
+        tex.SetPixel(0, 0, Color.white);
+        tex.Apply();
+        fillSprite = Sprite.Create(tex, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0f));
+    }
 
     void RebuildVisuals()
     {
         ClearVisuals();
-        foreach (var p in pieces) visuals.Add(MakePieceVisual(p));
+        foreach (var p in pieces) MakePieceVisual(p);
     }
 
     void ClearVisuals()
     {
         foreach (var go in visuals) Destroy(go);
         visuals.Clear();
+        beltSrs.Clear();
+        sourceSrs.Clear();
+        sinkVisuals.Clear();
     }
 
     GameObject MakePieceVisual(Piece p)
@@ -350,12 +446,30 @@ public class GridEditor : MonoBehaviour
         var go = new GameObject(isBelt ? "belt" : p.kind.ToString().ToLower());
         go.transform.SetParent(transform, false);
         var sr = go.AddComponent<SpriteRenderer>();
-        sr.sprite = sprite;
-        sr.color = isBelt ? ColorBelt
-            : p.kind == Kind.Source ? ColorSource
-            : p.kind == Kind.Sink ? ColorSink
-            : p.kind == Kind.Splitter ? ColorSplitter
-            : ColorMerger;
+        if (isBelt)
+        {
+            sr.sprite = beltFrames[0];
+            // N/S/W = rotated copies of the E strip (composes with the scale
+            // logic: local +X is the travel axis for every direction).
+            go.transform.localRotation = Quaternion.Euler(0f, 0f, JVArt.BeltRotation(p.dir));
+            beltSrs.Add(sr);
+        }
+        else
+        {
+            switch (p.kind)
+            {
+                case Kind.Source:
+                    sr.sprite = sourceIdle;
+                    sourceSrs.Add(sr);
+                    break;
+                case Kind.Sink:
+                    sr.sprite = sinkBase;
+                    sinkVisuals.Add(MakeSinkFill(p));
+                    break;
+                case Kind.Splitter: sr.sprite = splitterSpr; break;
+                case Kind.Merger: sr.sprite = mergerSpr; break;
+            }
+        }
         if (isBelt)
         {
             bool horizontal = p.dir == JoyveyorBridge.DirE || p.dir == JoyveyorBridge.DirW;
@@ -368,7 +482,27 @@ public class GridEditor : MonoBehaviour
         {
             go.transform.localPosition = new Vector3(p.x, -p.y, 0f);
         }
+        visuals.Add(go);
         return go;
+    }
+
+    // Sink fill bar: a thin SpriteRenderer inside the sink's dark well,
+    // anchored at the well's bottom, scaled Y by storageCount/capacity.
+    // Well in sprite pixels: x 8..23, y 8..23 (32px cell, 100 px/unit) ->
+    // 0.15 x 0.15 units, bottom at local y = -0.075.
+    SinkVisual MakeSinkFill(Piece p)
+    {
+        var go = new GameObject("sink_fill");
+        go.transform.SetParent(transform, false);
+        var sr = go.AddComponent<SpriteRenderer>();
+        sr.sprite = fillSprite;
+        sr.sortingOrder = 1;
+        sr.transform.localPosition = new Vector3(p.x, -p.y - 0.075f, 0.02f);
+        sr.transform.localScale = new Vector3(0.15f, 0.001f, 1f);  // empty
+        visuals.Add(go);
+        var sv = new SinkVisual { x = p.x, y = p.y, fill = sr };
+        sinkVisuals.Add(sv);
+        return sv;
     }
 
     void UpdatePreview(int x, int y)
