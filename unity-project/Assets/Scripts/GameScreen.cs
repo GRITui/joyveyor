@@ -37,6 +37,18 @@ public class GameScreen : MonoBehaviour
     public int beltLen = 3;   // default belt length (spec: click = length 3)
     public bool runReady;     // RUN enabled (>=1 source AND >=1 sink)
 
+    // S5: flow + onboarding hooks (MenuFlow drives the screen; the onboarding
+    // probes drive placement through these public actions so the hint engine
+    // sees the same events a player's clicks would).
+    public event System.Action OnRunStarted;
+    public event System.Action OnFirstDelivered;
+    // S5: flow events — MenuFlow listens to route the screen.
+    public event System.Action OnNextLevel;
+    public event System.Action OnQuitToMenu;
+    public void SelectToolPublic(Tool t) { SelectTool(t); }
+    public void PlaceSourceAt(int x, int y) { tool = Tool.Source; PlaceAt(x, y); }
+    public void PlaceSinkAt(int x, int y) { tool = Tool.Sink; PlaceAt(x, y); }
+
     // HUD Text refs the headless probe reads (acceptance: HUD text matches sim).
     public Text timerText;
     public Text deliveredText;
@@ -48,6 +60,40 @@ public class GameScreen : MonoBehaviour
     public GameObject jammedBanner;
     public GameObject pauseOverlay;
     public Canvas hudCanvas;
+
+    // S5: onboarding (level 1 only) + flow accessors for MenuFlow.
+    public Onboarding onboarding;
+    Onboarding Onboarding => onboarding;
+    public GameObject completeOverlay;
+    public GameObject failedOverlay;
+    public Text deliveredRow;
+    public Text timeLeftRow;
+    public Text efficiencyRow;
+    public Text totalRow;
+    public Text failedDelivered;
+    public Button nextButton;
+    public Button replayButton;
+    public Button retryButton;
+    public Button failedMenuButton;
+    public Button[] pauseScaleButtons;
+    public Image[] pauseScaleHi;
+    public Text skipHintsLink;
+    public int textScaleIndex = 1;   // 0=S 1=M 2=L (persisted by MenuFlow)
+    public int CurrentLevelIndex => session != null ? session.LevelIndex : 1;
+    public int DeliveredCount { get { int d, t; SumSinks(out d, out t); return d; } }
+    public int TotalCount { get { int d, t; SumSinks(out d, out t); return t; } }
+    public void SetTextScale(int i)
+    {
+        textScaleIndex = Mathf.Clamp(i, 0, 2);
+        if (hudCanvas != null)
+        {
+            var scaler = hudCanvas.GetComponent<CanvasScaler>();
+            if (scaler != null) scaler.scaleFactor = new[] { 0.85f, 1f, 1.2f }[textScaleIndex];
+        }
+        if (pauseScaleHi != null)
+            for (int k = 0; k < pauseScaleHi.Length; ++k)
+                if (pauseScaleHi[k] != null) pauseScaleHi[k].enabled = k == textScaleIndex;
+    }
 
     JoyveyorRunner runner;
     Camera cam;
@@ -66,6 +112,11 @@ public class GameScreen : MonoBehaviour
     // Drag-to-draw belt state.
     bool dragging;
     int dragX, dragY;
+
+    // S5: first-delivery onboarding edge + star-pop coroutine + shown stars.
+    bool firstDeliveredFired;
+    Coroutine starPop;
+    public int ShownStars;
 
     // ---- Lifecycle ----
 
@@ -127,6 +178,11 @@ public class GameScreen : MonoBehaviour
             if (session == null) session = runner.gameObject.AddComponent<GameSession>();
             session.OnPhaseChanged += OnPhaseChanged;
             BuildHud();
+            // S5: onboarding (level 1 only) — attached to the HUD canvas.
+            var obGo = new GameObject("Onboarding");
+            obGo.transform.SetParent(hudCanvas.transform, false);
+            onboarding = obGo.AddComponent<Onboarding>();
+            onboarding.Attach(this);
             // Default to level 1 (the tutorial). Probes call StartLevel(n).
             StartLevel(1);
         }
@@ -149,6 +205,7 @@ public class GameScreen : MonoBehaviour
         if (session.LoadLevel(index))
         {
             lastAction = null;
+            if (Onboarding != null) Onboarding.Reset(index);
             RefreshVisuals();
             RefreshHud();
         }
@@ -158,7 +215,25 @@ public class GameScreen : MonoBehaviour
         }
     }
 
-    void OnPhaseChanged() { RefreshVisuals(); RefreshHud(); }
+    void OnPhaseChanged()
+    {
+        RefreshVisuals();
+        RefreshHud();
+        // S5: entering Build (restart / level start) hides any end overlay.
+        if (session.phase == GameSession.Phase.Build)
+        {
+            HideOverlays();
+            firstDeliveredFired = false;
+        }
+        else if (session.phase == GameSession.Phase.Complete)
+        {
+            ShowCompleteOverlay();
+        }
+        else if (session.phase == GameSession.Phase.Failed)
+        {
+            ShowFailedOverlay();
+        }
+    }
 
     // ---- Camera ----
 
@@ -294,6 +369,8 @@ public class GameScreen : MonoBehaviour
         if (session.PlacePiece(tag, x, y, c, d, e))
         {
             lastAction = new UndoRec { isPlace = true, tag = tag, a = x, b = y, c = c, d = d, e = e };
+            if (tag == 'S') Onboarding?.OnSourcePlaced();
+            else if (tag == 'K') Onboarding?.OnSinkPlaced();
             RefreshVisuals();
             RefreshHud();
         }
@@ -306,6 +383,7 @@ public class GameScreen : MonoBehaviour
         if (session.PlacePiece('B', x, y, (int)d, len))
         {
             lastAction = new UndoRec { isPlace = true, tag = 'B', a = x, b = y, c = (int)d, d = len };
+            Onboarding?.OnBeltPlaced();
             RefreshVisuals();
             RefreshHud();
         }
@@ -355,6 +433,7 @@ public class GameScreen : MonoBehaviour
         {
             if (audio != null) audio.PlayUiClick();
             session.StartRun();
+            if (OnRunStarted != null) OnRunStarted();
         }
     }
 
@@ -373,6 +452,9 @@ public class GameScreen : MonoBehaviour
 
     public void QuitToMenu()
     {
+        // S5: MenuFlow takes over (hides the game, shows the main menu).
+        // The sandbox reload below is the no-MenuFlow fallback (dev probes).
+        if (OnQuitToMenu != null) { OnQuitToMenu(); return; }
         StartCoroutine(ReloadSandbox());
     }
 
@@ -591,6 +673,10 @@ public class GameScreen : MonoBehaviour
         jammedBanner = MakeJammedBanner(canvasGo.transform);
         pauseOverlay = MakePauseOverlay(canvasGo.transform);
         pauseOverlay.SetActive(false);
+        completeOverlay = MakeCompleteOverlay(canvasGo.transform);
+        completeOverlay.SetActive(false);
+        failedOverlay = MakeFailedOverlay(canvasGo.transform);
+        failedOverlay.SetActive(false);
         bottomBar.SetActive(true);
     }
 
@@ -740,6 +826,8 @@ public class GameScreen : MonoBehaviour
         return b;
     }
 
+    // S5: pause doubles as settings (text scale) + key reference + "skip
+    // hints" link (jv-design-uxui §Wireframes "Pause").
     GameObject MakePauseOverlay(Transform parent)
     {
         var ov = MakeImage(parent, "PauseOverlay", new Color(0f, 0f, 0f, 0.6f));
@@ -748,17 +836,80 @@ public class GameScreen : MonoBehaviour
         var trt = title.rectTransform;
         trt.anchorMin = new Vector2(0.5f, 0.5f); trt.anchorMax = new Vector2(0.5f, 0.5f);
         trt.pivot = new Vector2(0.5f, 0.5f);
-        trt.anchoredPosition = new Vector2(0, 220);
+        trt.anchoredPosition = new Vector2(0, 250);
         trt.sizeDelta = new Vector2(600, 80);
         var resume = MakeButton(ov.transform, "Resume", "RESUME", 30);
-        CenterButton(resume, 0);
+        CenterButton(resume, 110);
         resume.GetComponent<Button>().onClick.AddListener(() => TogglePause());
         var restart = MakeButton(ov.transform, "Restart", "RESTART", 30);
-        CenterButton(restart, -80);
+        CenterButton(restart, 30);
         restart.GetComponent<Button>().onClick.AddListener(() => Restart());
         var quit = MakeButton(ov.transform, "Quit", "QUIT TO MENU", 26);
-        CenterButton(quit, -160);
+        CenterButton(quit, -50);
         quit.GetComponent<Button>().onClick.AddListener(() => QuitToMenu());
+
+        // Text size: [S] [M] [L] — one global canvas multiplier.
+        var cap = MakeText(ov.transform, "TextScaleCap", "TEXT SIZE", 20, TextAnchor.MiddleRight);
+        var crt = cap.rectTransform;
+        crt.anchorMin = new Vector2(0.5f, 0.5f); crt.anchorMax = new Vector2(0.5f, 0.5f);
+        crt.pivot = new Vector2(1, 0.5f);
+        crt.anchoredPosition = new Vector2(-210, -130);
+        crt.sizeDelta = new Vector2(140, 40);
+        pauseScaleButtons = new Button[3];
+        pauseScaleHi = new Image[3];
+        string[] labels = { "S", "M", "L" };
+        for (int i = 0; i < 3; ++i)
+        {
+            var b = MakeButton(ov.transform, "Scale" + labels[i], labels[i], 26);
+            var brt = b.GetComponent<RectTransform>();
+            brt.anchorMin = new Vector2(0.5f, 0.5f); brt.anchorMax = new Vector2(0.5f, 0.5f);
+            brt.pivot = new Vector2(0.5f, 0.5f);
+            brt.anchoredPosition = new Vector2(-140 + i * 64, -130);
+            brt.sizeDelta = new Vector2(56, 48);
+            var hi = MakeImage(b.transform, "Hi", SelHi);
+            var hiImg = hi.GetComponent<Image>();
+            hiImg.raycastTarget = false;
+            hiImg.enabled = false;
+            Stretch(hi.GetComponent<RectTransform>(), 0, 0, 0, 0);
+            pauseScaleHi[i] = hiImg;
+            int idx = i;
+            b.GetComponent<Button>().onClick.AddListener(() => SetTextScale(idx));
+            pauseScaleButtons[i] = b.GetComponent<Button>();
+        }
+
+        // Key reference (jv-design-uxui §Wireframes "Pause").
+        var keys1 = MakeText(ov.transform, "Keys1", "Keys: R rotate \u00B7 Z undo \u00B7 1-6 tools", 20, TextAnchor.MiddleCenter);
+        var k1rt = keys1.rectTransform;
+        k1rt.anchorMin = new Vector2(0.5f, 0.5f); k1rt.anchorMax = new Vector2(0.5f, 0.5f);
+        k1rt.pivot = new Vector2(0.5f, 0.5f);
+        k1rt.anchoredPosition = new Vector2(0, -190);
+        k1rt.sizeDelta = new Vector2(700, 30);
+        var keys2 = MakeText(ov.transform, "Keys2", "WASD dir \u00B7 right-click delete \u00B7 Esc pause \u00B7 Enter run", 20, TextAnchor.MiddleCenter);
+        var k2rt = keys2.rectTransform;
+        k2rt.anchorMin = new Vector2(0.5f, 0.5f); k2rt.anchorMax = new Vector2(0.5f, 0.5f);
+        k2rt.pivot = new Vector2(0.5f, 0.5f);
+        k2rt.anchoredPosition = new Vector2(0, -222);
+        k2rt.sizeDelta = new Vector2(700, 30);
+
+        // "Skip hints" link (onboarding, level 1).
+        skipHintsLink = MakeText(ov.transform, "SkipHints", "Skip hints", 20, TextAnchor.MiddleCenter);
+        skipHintsLink.color = new Color(0.6f, 0.75f, 1f, 1f);
+        var srt = skipHintsLink.rectTransform;
+        srt.anchorMin = new Vector2(0.5f, 0.5f); srt.anchorMax = new Vector2(0.5f, 0.5f);
+        srt.pivot = new Vector2(0.5f, 0.5f);
+        srt.anchoredPosition = new Vector2(0, -262);
+        srt.sizeDelta = new Vector2(200, 32);
+        var skipBtn = MakeButton(ov.transform, "SkipHintsBtn", "", 0);
+        var sbt = skipBtn.GetComponent<RectTransform>();
+        sbt.anchorMin = new Vector2(0.5f, 0.5f); sbt.anchorMax = new Vector2(0.5f, 0.5f);
+        sbt.pivot = new Vector2(0.5f, 0.5f);
+        sbt.anchoredPosition = new Vector2(0, -262);
+        sbt.sizeDelta = new Vector2(200, 44);   // >= 44 px hit area
+        skipBtn.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);  // invisible, clickable
+        skipBtn.GetComponent<Button>().onClick.AddListener(() =>
+        {
+            if (onboarding != null) onboarding.SkipAll();
+        });
         return ov;
     }
 
@@ -769,6 +920,264 @@ public class GameScreen : MonoBehaviour
         rt.pivot = new Vector2(0.5f, 0.5f);
         rt.anchoredPosition = new Vector2(0, yOff);
         rt.sizeDelta = new Vector2(320, 64);
+    }
+
+    // ---- S5: overlay control (driven by GameSession phase + MenuFlow) ----
+
+    // Hide every end-of-round overlay (called on Build / level start / resume).
+    public void HideOverlays()
+    {
+        if (completeOverlay != null) completeOverlay.SetActive(false);
+        if (failedOverlay != null) failedOverlay.SetActive(false);
+    }
+
+    // Level complete: fill the score rows, show the overlay, pop the stars.
+    public void ShowCompleteOverlay()
+    {
+        if (completeOverlay == null || session == null) return;
+        int d, t; SumSinks(out d, out t);
+        uint timeLeft = session.CompletionTicks < session.Level.TimeLimit
+            ? session.Level.TimeLimit - session.CompletionTicks : 0;
+        uint eff = session.Level.Budget > (uint)session.PiecesUsed
+            ? (uint)session.Level.Budget - (uint)session.PiecesUsed : 0;
+        if (deliveredRow != null) deliveredRow.text = "Delivered  " + d + "/" + t;
+        if (timeLeftRow != null) timeLeftRow.text = "Time left  +" + (timeLeft * 10);
+        if (efficiencyRow != null) efficiencyRow.text = "Efficiency  +" + (eff * 50);
+        if (totalRow != null) totalRow.text = "Total        " + session.Score;
+        if (onboarding != null) onboarding.Hide();   // "Delivered!" hint overlaps the title
+        completeOverlay.SetActive(true);
+        if (starPop != null) StopCoroutine(starPop);
+        starPop = StartCoroutine(StarPop(session.Stars));
+    }
+
+    // Stars pop in sequence, 300 ms apart (jv-design-uxui §Wireframes).
+    IEnumerator StarPop(int stars)
+    {
+        ShownStars = 0;
+        for (int i = 0; i < starImages.Length; ++i)
+        {
+            if (starImages[i] == null) continue;
+            starImages[i].sprite = StarSprite(i < stars);
+            starImages[i].enabled = false;
+        }
+        for (int i = 0; i < stars && i < starImages.Length; ++i)
+        {
+            yield return new WaitForSeconds(0.3f);
+            if (starImages[i] != null) starImages[i].enabled = true;
+            ShownStars = i + 1;
+        }
+    }
+
+    // Level failed: show delivered n/total + the failed overlay.
+    public void ShowFailedOverlay()
+    {
+        if (failedOverlay == null || session == null) return;
+        int d, t; SumSinks(out d, out t);
+        if (failedDelivered != null) failedDelivered.text = d + " / " + t + " delivered";
+        if (onboarding != null) onboarding.Hide();   // hint box overlaps the failed overlay
+        failedOverlay.SetActive(true);
+    }
+
+    // Public pause toggle for MenuFlow / probes (delegates to session).
+    public void PauseGame() { TogglePause(); }
+
+    // ---- S5: Level complete (jv-design-uxui §Wireframes "Level complete") ----
+    // Stars pop in sequence (300 ms apart); score rows reuse numbers the
+    // player already saw. REPLAY / NEXT (Next advances without re-entering
+    // select — MenuFlow.NextLevel drives that).
+
+    Image[] starImages;
+
+    GameObject MakeCompleteOverlay(Transform parent)
+    {
+        var ov = MakeImage(parent, "CompleteOverlay", new Color(0f, 0f, 0f, 0.72f));
+        Stretch(ov.GetComponent<RectTransform>(), 0, 0, 0, 0);
+        var title = MakeText(ov.transform, "Title", "LEVEL COMPLETE", 56, TextAnchor.MiddleCenter);
+        var trt = title.rectTransform;
+        trt.anchorMin = new Vector2(0.5f, 0.5f); trt.anchorMax = new Vector2(0.5f, 0.5f);
+        trt.pivot = new Vector2(0.5f, 0.5f);
+        trt.anchoredPosition = new Vector2(0, 250);
+        trt.sizeDelta = new Vector2(700, 80);
+
+        // Star row: three code-drawn star sprites (filled vs empty outline —
+        // shape, not color-only). Popped in sequence by MenuFlow.
+        var row = new GameObject("StarRow");
+        row.transform.SetParent(ov.transform, false);
+        var rrt = row.AddComponent<RectTransform>();
+        rrt.anchorMin = new Vector2(0.5f, 0.5f); rrt.anchorMax = new Vector2(0.5f, 0.5f);
+        rrt.pivot = new Vector2(0.5f, 0.5f);
+        rrt.anchoredPosition = new Vector2(0, 130);
+        rrt.sizeDelta = new Vector2(3 * 110 + 2 * 30, 110);
+        starImages = new Image[3];
+        for (int i = 0; i < 3; ++i)
+        {
+            var go = new GameObject("Star" + (i + 1));
+            go.transform.SetParent(row.transform, false);
+            var img = go.AddComponent<Image>();
+            img.sprite = StarSprite(true);  // placeholder; real fill set on show
+            var grt = img.rectTransform;
+            grt.anchorMin = new Vector2(0, 0.5f); grt.anchorMax = new Vector2(0, 0.5f);
+            grt.pivot = new Vector2(0, 0.5f);
+            grt.anchoredPosition = new Vector2(i * 140, 0);
+            grt.sizeDelta = new Vector2(110, 110);
+            img.raycastTarget = false;
+            img.enabled = false;
+            starImages[i] = img;
+        }
+
+        deliveredRow = MakeScoreRow(ov.transform, "DeliveredRow", "Delivered", 0);
+        timeLeftRow = MakeScoreRow(ov.transform, "TimeLeftRow", "Time left", -70);
+        efficiencyRow = MakeScoreRow(ov.transform, "EfficiencyRow", "Efficiency", -140);
+        totalRow = MakeScoreRow(ov.transform, "TotalRow", "Total", -210);
+
+        replayButton = MakeButton(ov.transform, "Replay", "REPLAY", 30).GetComponent<Button>();
+        var prt = replayButton.GetComponent<RectTransform>();
+        prt.anchorMin = new Vector2(0.5f, 0.5f); prt.anchorMax = new Vector2(0.5f, 0.5f);
+        prt.pivot = new Vector2(0.5f, 0.5f);
+        prt.anchoredPosition = new Vector2(-170, -300);
+        prt.sizeDelta = new Vector2(280, 64);
+        replayButton.onClick.AddListener(() =>
+        {
+            if (onboarding != null) onboarding.Reset(session.LevelIndex);
+            Restart();
+            if (completeOverlay != null) completeOverlay.SetActive(false);
+        });
+        nextButton = MakeButton(ov.transform, "Next", "NEXT", 30).GetComponent<Button>();
+        var nrt = nextButton.GetComponent<RectTransform>();
+        nrt.anchorMin = new Vector2(0.5f, 0.5f); nrt.anchorMax = new Vector2(0.5f, 0.5f);
+        nrt.pivot = new Vector2(0.5f, 0.5f);
+        nrt.anchoredPosition = new Vector2(170, -300);
+        nrt.sizeDelta = new Vector2(280, 64);
+        nextButton.onClick.AddListener(() =>
+        {
+            if (completeOverlay != null) completeOverlay.SetActive(false);
+            if (OnNextLevel != null) OnNextLevel();
+        });
+        return ov;
+    }
+
+    Text MakeScoreRow(Transform parent, string name, string label, float yOff)
+    {
+        var t = MakeText(parent, name, label + "  ", 30, TextAnchor.MiddleCenter);
+        var rt = t.rectTransform;
+        rt.anchorMin = new Vector2(0.5f, 0.5f); rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(0, yOff);
+        rt.sizeDelta = new Vector2(600, 44);
+        return t;
+    }
+
+    // ---- S5: Level failed (jv-design-uxui §Wireframes "Level failed") ----
+
+    GameObject MakeFailedOverlay(Transform parent)
+    {
+        var ov = MakeImage(parent, "FailedOverlay", new Color(0.16f, 0.03f, 0.03f, 0.88f));
+        Stretch(ov.GetComponent<RectTransform>(), 0, 0, 0, 0);
+        var title = MakeText(ov.transform, "Title", "TIME'S UP", 64, TextAnchor.MiddleCenter);
+        var trt = title.rectTransform;
+        trt.anchorMin = new Vector2(0.5f, 0.5f); trt.anchorMax = new Vector2(0.5f, 0.5f);
+        trt.pivot = new Vector2(0.5f, 0.5f);
+        trt.anchoredPosition = new Vector2(0, 140);
+        trt.sizeDelta = new Vector2(700, 90);
+        failedDelivered = MakeText(ov.transform, "Delivered", "0 / 0 delivered", 34, TextAnchor.MiddleCenter);
+        var drt = failedDelivered.rectTransform;
+        drt.anchorMin = new Vector2(0.5f, 0.5f); drt.anchorMax = new Vector2(0.5f, 0.5f);
+        drt.pivot = new Vector2(0.5f, 0.5f);
+        drt.anchoredPosition = new Vector2(0, 20);
+        drt.sizeDelta = new Vector2(600, 50);
+        retryButton = MakeButton(ov.transform, "Retry", "RETRY", 30).GetComponent<Button>();
+        var rrt = retryButton.GetComponent<RectTransform>();
+        rrt.anchorMin = new Vector2(0.5f, 0.5f); rrt.anchorMax = new Vector2(0.5f, 0.5f);
+        rrt.pivot = new Vector2(0.5f, 0.5f);
+        rrt.anchoredPosition = new Vector2(-170, -120);
+        rrt.sizeDelta = new Vector2(280, 64);
+        retryButton.onClick.AddListener(() =>
+        {
+            Restart();
+            if (failedOverlay != null) failedOverlay.SetActive(false);
+        });
+        failedMenuButton = MakeButton(ov.transform, "Menu", "MENU", 30).GetComponent<Button>();
+        var mrt = failedMenuButton.GetComponent<RectTransform>();
+        mrt.anchorMin = new Vector2(0.5f, 0.5f); mrt.anchorMax = new Vector2(0.5f, 0.5f);
+        mrt.pivot = new Vector2(0.5f, 0.5f);
+        mrt.anchoredPosition = new Vector2(170, -120);
+        mrt.sizeDelta = new Vector2(280, 64);
+        failedMenuButton.onClick.AddListener(() =>
+        {
+            if (failedOverlay != null) failedOverlay.SetActive(false);
+            QuitToMenu();
+        });
+        return ov;
+    }
+
+    // Code-drawn star sprite (5-point). Filled = solid gold; empty = outline
+    // only. Shape-based, so star state is never color-only (a11y §7).
+    static Sprite _starFilled, _starEmpty;
+    public static Sprite StarSprite(bool filled)
+    {
+        if (filled)
+        {
+            if (_starFilled == null) _starFilled = MakeStarTexture(true);
+            return _starFilled;
+        }
+        if (_starEmpty == null) _starEmpty = MakeStarTexture(false);
+        return _starEmpty;
+    }
+
+    static Sprite MakeStarTexture(bool filled)
+    {
+        int S = 64;
+        var tex = new Texture2D(S, S);
+        var px = new Color[S * S];
+        float cx = S / 2f, cy = S / 2f, R = S * 0.48f, r = R * 0.42f;
+        for (int y = 0; y < S; ++y)
+            for (int x = 0; x < S; ++x)
+            {
+                float dx = x - cx + 0.5f, dy = y - cy + 0.5f;
+                float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                float ang = Mathf.Atan2(dy, dx);
+                // 5-point star radius: alternates R (points) / r (valleys) every 36°.
+                float k = Mathf.Abs(ang % (Mathf.PI * 2f / 5f) - Mathf.PI / 5f);
+                float starR = Mathf.Lerp(r, R, Mathf.Clamp01(k / (Mathf.PI / 5f)));
+                bool inside = dist <= starR;
+                bool edge = inside && dist >= starR - 3.5f;
+                Color c = Color.clear;
+                if (filled && inside) c = new Color(1f, 0.84f, 0.2f, 1f);
+                else if (!filled && edge) c = new Color(0.85f, 0.85f, 0.9f, 1f);
+                px[y * S + x] = c;
+            }
+        tex.SetPixels(px);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f));
+    }
+
+    // S5: code-drawn padlock (level select, locked slots). No font glyph.
+    static Sprite _padlock;
+    public static Sprite PadlockSprite
+    {
+        get { if (_padlock == null) _padlock = MakePadlockTexture(); return _padlock; }
+    }
+
+    static Sprite MakePadlockTexture()
+    {
+        int S = 64;
+        var tex = new Texture2D(S, S);
+        var px = new Color[S * S];
+        var c = new Color(0.6f, 0.6f, 0.66f, 1f);
+        float cx = S / 2f;
+        for (int y = 0; y < S; ++y)
+            for (int x = 0; x < S; ++x)
+            {
+                bool body = x >= 16 && x <= 48 && y >= 12 && y <= 42;
+                // Shackle: upper semicircle, center (32,42), outer r 14 / inner r 9.
+                float dx = x - cx, dy = y - 42;
+                float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                bool shackle = dy >= 0 && dist <= 14 && dist >= 9;
+                px[y * S + x] = (body || shackle) ? c : Color.clear;
+            }
+        tex.SetPixels(px);
+        tex.Apply();
+        return Sprite.Create(tex, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f));
     }
 
     // ---- HUD builders ----
@@ -846,6 +1255,12 @@ public class GameScreen : MonoBehaviour
         int delivered = 0, total = 0;
         SumSinks(out delivered, out total);
         deliveredText.text = delivered + "/" + total;
+        // S5: onboarding hint #5 — first item delivered this run (level 1).
+        if (!firstDeliveredFired && delivered > 0)
+        {
+            firstDeliveredFired = true;
+            if (OnFirstDelivered != null) OnFirstDelivered();
+        }
         if (progressBarFill != null)
         {
             float f = total > 0 ? (float)delivered / total : 0f;
@@ -855,7 +1270,7 @@ public class GameScreen : MonoBehaviour
         if (jammedBanner != null)
             jammedBanner.SetActive(JoyveyorBridge.jv_is_deadlocked(runner.World) == 1);
 
-        if (pauseOverlay != null) pauseOverlay.SetActive(session.Paused);
+        if (pauseOverlay != null) pauseOverlay.SetActive(session.Paused && session.phase == GameSession.Phase.Run);
 
         if (runButton != null && session.phase == GameSession.Phase.Build)
         {
