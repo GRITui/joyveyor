@@ -37,3 +37,13 @@ Saved/
 profiling/
 saves/
 mono_crash.*.json
+
+# Native build outputs (compiled from the committed build-native/*.c sources;
+# the .c/.mm sources stay tracked, only their compiled outputs are ignored)
+build-native/winlist
+build-native/winlist2
+
+# Stray local build artifact (not produced by any repo build step; PlayerCapture
+# tolerates its absence via try/catch)
+unity-project/Assets/Plugins/Mac/
+unity-project/Assets/Plugins/Mac.meta
