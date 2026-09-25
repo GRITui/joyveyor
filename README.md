@@ -230,3 +230,35 @@ the locked pieces + reference solution into a fresh `World`, advances to
 `time_limit`, and asserts every sink is full before the limit *and* the
 reference hits `par_time`. A level that can't be won this way fails the build —
 author the level/reference to satisfy the test, never loosen the assertion.
+
+## 9. Headless Tests
+
+Headless Unity checks run the real editor in batch mode and drive the sim the
+same way the player does. Two of them are **async**: `PlayTest.Run` and
+`GameTest.Run` open the scene, register an update callback, and return — the
+real work happens later in a probe component that terminates the editor itself
+via `EditorApplication.Exit()`. **Do NOT pass `-quit`** to those: `-quit` makes
+batchmode exit right after the `-executeMethod` returns, before the probe runs,
+turning the test into a vacuous exit-0 false pass (no `ticks=` line, marker
+file left behind). `PlayTest.Run` detects `-quit` and fails loudly (exit 3).
+
+Run from the repo root:
+
+```sh
+# Sim regression gate (async — NO -quit; probe exits the editor with the verdict)
+Unity -batchmode -nographics -projectPath unity-project -executeMethod PlayTest.Run
+#   PASS = exit 0 + a log line "ticks=600 ... invariants=OK"
+#   exit codes: 0 pass · 1 sim regression · 2 watchdog (loop never ran) · 3 -quit passed
+
+# Game-loop contract (async — NO -quit): level 1 state machine, stars, score, progress JSON
+Unity -batchmode -nographics -projectPath unity-project -executeMethod GameTest.Run
+
+# Edit-mode bridge smoke (synchronous — -quit is fine here)
+Unity -batchmode -nographics -quit -projectPath unity-project -executeMethod BridgeLoadTest.Run
+```
+
+`Unity` = `/Applications/Unity/Hub/Editor/6000.6.0f1/Unity.app/Contents/MacOS/Unity`.
+The C++ core is tested separately: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release &&
+cmake --build build -j4`, then run every `build/test_*` **from `build/`** (the
+level tests resolve `unity-project/Assets/Levels` relative to the build dir) —
+all must print `0 failures`.

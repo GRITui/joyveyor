@@ -13,6 +13,12 @@ using UnityEngine;
 // AND unregisters EditorApplication.update callbacks. So Run() drops a
 // marker file and [InitializeOnLoadMethod] re-registers Poll after the
 // reload; the probe deletes the marker on exit.
+//
+// IMPORTANT: do NOT pass -quit. PlayTest.Run is async (it returns after
+// registering the update callback; the probe does the real work later and
+// terminates the editor itself). -quit makes batchmode exit right after
+// Run() returns, before the probe/watchdog run, turning the test into a
+// vacuous exit-0 false pass. Run() detects -quit and fails loudly (exit 3).
 [InitializeOnLoad]
 public static class PlayTest
 {
@@ -33,6 +39,26 @@ public static class PlayTest
     [MenuItem("Joyveyor/Headless Play Test")]
     static void Run()
     {
+        // -quit is NOT supported for the play test. This method is async: it
+        // opens the scene, registers an update callback, and RETURNS. The real
+        // work happens later in PlayTestProbe.FixedUpdate (600 sim ticks, ~12s),
+        // which terminates the editor via EditorApplication.Exit(). With -quit,
+        // batchmode exits right after Run() returns — before the probe or the
+        // 90s watchdog can run — so the play test becomes a vacuous exit-0 false
+        // pass (no ticks=/invariants= line, marker left behind). Fail loudly
+        // (exit 3, distinct from sim-fail=1 and watchdog=2) so the gate can't
+        // be fooled. Correct command (no -quit):
+        //   Unity -batchmode -nographics -projectPath unity-project -executeMethod PlayTest.Run
+        foreach (var a in System.Environment.GetCommandLineArgs())
+            if (a == "-quit")
+            {
+                Debug.LogError("[PlayTest] -quit is not supported for the play test: "
+                    + "batchmode would exit before the async probe reaches 600 ticks, "
+                    + "producing a false exit-0 pass. Drop -quit and let the probe's "
+                    + "EditorApplication.Exit() terminate the editor.");
+                EditorApplication.Exit(3);
+                return;
+            }
         // -scene is not a real batchmode flag; open the sandbox scene ourselves.
         EditorSceneManager.OpenScene("Assets/Scenes/Sandbox.unity", OpenSceneMode.Single);
         File.WriteAllText(Marker, "");
