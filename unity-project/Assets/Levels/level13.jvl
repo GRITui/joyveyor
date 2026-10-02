@@ -1,0 +1,14 @@
+#JVLG1
+name Confluence
+grid 24 16
+time_limit 1500
+par_time 600
+par_pieces 11
+budget 12
+S 0 2 15
+S 8 2 15
+S 0 12 15
+S 8 12 15
+K 7 6 10
+K 4 9 10
+K 4 14 16

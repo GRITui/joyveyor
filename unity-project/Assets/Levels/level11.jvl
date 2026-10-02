@@ -1,0 +1,12 @@
+#JVLG1
+name Switchyard
+grid 24 16
+time_limit 1300
+par_time 800
+par_pieces 10
+budget 11
+S 0 2 15
+S 8 2 15
+K 10 6 12
+K 7 9 12
+K 4 9 8

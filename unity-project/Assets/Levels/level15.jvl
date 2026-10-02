@@ -1,0 +1,16 @@
+#JVLG1
+name Final Shift
+grid 24 16
+time_limit 1600
+par_time 800
+par_pieces 17
+budget 17
+S 0 2 12
+S 8 2 12
+S 0 11 12
+S 8 11 12
+K 10 6 12
+K 7 9 12
+K 4 9 12
+K 7 13 12
+K 4 15 12

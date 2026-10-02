@@ -1,0 +1,14 @@
+#JVLG1
+name Overdrive
+grid 24 16
+time_limit 1500
+par_time 700
+par_pieces 11
+budget 14
+S 0 2 12
+S 8 2 12
+S 0 14 12
+K 7 6 10
+K 7 9 10
+K 4 12 10
+K 4 14 20

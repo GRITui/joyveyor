@@ -283,7 +283,7 @@ public class MenuFlow : MonoBehaviour
         var title = MakeText(levelSelect.transform, "Title", "JOYVEYOR", 44, TextAnchor.MiddleCenter);
         Center(title.rectTransform, 0, 250, 600, 64);
 
-        // 4-column grid, 10 slots (rows of 4, 4, 2) per the wireframe.
+        // 4-column grid, 15 slots (rows of 4, 4, 4, 3) per the wireframe.
         levelButtons = new Button[TotalLevels];
         levelStarImages = new Image[TotalLevels * 3];
         levelLockImages = new Image[TotalLevels];

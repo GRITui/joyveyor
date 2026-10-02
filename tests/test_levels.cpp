@@ -98,7 +98,7 @@ bool runLevel(const std::string& jvlPath, const std::string& solPath,
 
 int main() {
     const std::string dir = levelsDir();
-    for (int i = 1; i <= 10; ++i) {
+    for (int i = 1; i <= 15; ++i) {
         char jvl[64], sol[64];
         std::snprintf(jvl, sizeof(jvl), "%s/level%02d.jvl", dir.c_str(), i);
         std::snprintf(sol, sizeof(sol), "%s/reference/level%02d.sol", dir.c_str(), i);

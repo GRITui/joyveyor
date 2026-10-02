@@ -1,0 +1,10 @@
+#JVLG1
+name Cross Country
+grid 24 16
+time_limit 2000
+par_time 1300
+par_pieces 4
+budget 6
+S 0 0 12
+K 22 0 20
+K 11 15 20

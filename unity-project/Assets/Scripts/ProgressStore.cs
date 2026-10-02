@@ -15,7 +15,7 @@ using UnityEngine;
 // Add a real JSON lib only if the schema grows (per-level arrays, settings…).
 public class ProgressStore
 {
-    public const int TotalLevels = 10;
+    public const int TotalLevels = 15;
 
     public struct LevelResult
     {
