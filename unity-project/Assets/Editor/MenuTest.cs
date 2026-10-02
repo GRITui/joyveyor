@@ -153,7 +153,7 @@ public class MenuTestProbe : MonoBehaviour
             if (waitFrames < 3) return;
             bool ok = true;
             ok &= Expect(flow.Current == MenuFlow.Screen.LevelSelect, "not LevelSelect");
-            ok &= Expect(flow.levelButtons != null && flow.levelButtons.Length == 10,
+            ok &= Expect(flow.levelButtons != null && flow.levelButtons.Length == ProgressStore.TotalLevels,
                 "levelButtons=" + (flow.levelButtons != null ? flow.levelButtons.Length : -1));
             ok &= Expect(flow.levelButtons[0].interactable, "level 1 should be unlocked");
             ok &= Expect(!flow.levelButtons[1].interactable, "level 2 should be locked (no win yet)");
