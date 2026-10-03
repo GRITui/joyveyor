@@ -51,17 +51,15 @@ if your install differs.
 open dist/JoyVeyor.app
 ```
 
-The player boots the Unity 6 engine (Metal on Apple Silicon), loads the
-`Sandbox` scene, and auto-places the demo level (source → belt → splitter →
-two branches → sinks), which then runs live. Player log:
+The player boots the Unity 6 engine (Metal on Apple Silicon) into the main
+menu, then level select (15 levels, progress persisted). Player log:
 `~/Library/Logs/GRITui/JoyVeyor/Player.log`.
 
 ## Known limitations
 
-- **No main menu / level select yet.** The player opens directly into the
-  Sandbox editor with the demo level. The menu, level-select, pause/complete/
-  failed overlays and onboarding are Sprint 5 (`t_04665aad`) and are not in
-  this build. This is the current state of `main` at the S3 feature line.
+- **Menus present.** Main menu, level select (15 levels), pause/complete/failed
+  overlays and onboarding hints ship in this build (see `docs/ux/` for the open
+  UX audit findings).
 - **No store metadata.** No App Store / Mac App Store metadata, no code
   signing, no notarization. The app runs locally but is not store-ready.
 - **Single item type.** The sim renders one item type (MVP item model, see
@@ -74,7 +72,7 @@ two branches → sinks), which then runs live. Player log:
 
 ## Verification (this build)
 
-- C++ core: all 11 test suites green (5,717 checks, 0 failures).
+- C++ core: all 11 test suites green (0 failures); PlayTest invariants=OK; HudTest + MenuTest PASS (re-verified on rebuild from be885c4).
 - Unity build: `result=Succeeded`, 0 errors, 69,906,177 B.
 - Launch: player process started, engine initialized on Metal (Apple M1),
   1920×1080 surface created, no errors/exceptions in `Player.log`, stable for
