@@ -65,10 +65,11 @@ public class ItemRenderer : MonoBehaviour
             float x = pos[2 * i];
             float y = pos[2 * i + 1];
             var go = pool[i];
+            if (go == null) go = pool[i] = CreatePoolObject();   // GameScreen's startup sweep destroys children
             go.transform.position = new Vector3(x, -y, 0f) * cellSize;
             go.SetActive(true);
         }
         for (int i = count; i < poolSize; ++i)
-            pool[i].SetActive(false);
+            if (pool[i] != null) pool[i].SetActive(false);
     }
 }

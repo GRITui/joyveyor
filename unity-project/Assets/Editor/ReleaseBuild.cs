@@ -53,6 +53,16 @@ public static class ReleaseBuild
 
         BuildReport report = BuildPipeline.BuildPlayer(opts);
         var s = report.summary;
+        if (s.result == BuildResult.Succeeded)
+        {
+            // Player reads levels from <app>/Contents/Resources/Data/StreamingAssets/Levels
+            // (LevelDef.LevelsDir). Without this copy every level load fails -> blank window.
+            string dst = Path.Combine(outPath, "Contents", "Resources", "Data", "StreamingAssets", "Levels");
+            Directory.CreateDirectory(dst);
+            foreach (var f in Directory.GetFiles("Assets/Levels", "*.jvl"))
+                File.Copy(f, Path.Combine(dst, Path.GetFileName(f)), true);
+            Debug.Log("[ReleaseBuild] levels copied -> " + dst);
+        }
         Debug.Log("[ReleaseBuild] result=" + s.result
             + " size=" + s.totalSize.ToString("N0") + "B"
             + " errors=" + s.totalErrors);
