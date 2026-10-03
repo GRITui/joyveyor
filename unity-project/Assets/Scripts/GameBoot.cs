@@ -4,10 +4,17 @@ using UnityEngine;
 // without this the player shows an empty window (no GameScreen/MenuFlow).
 // Editor probes add the components themselves, so skip when they exist.
 // Any failure shows an on-screen message instead of a blank window.
+//
+// Verification hooks (env vars, unset = no effect for normal players):
+//   JV_SHOT=<png>     save a real player frame at frame 120, quit at 150.
+//   JV_SHOT_LEVEL=<n> skip the boot/menu screens and go straight into level n's
+//                     build phase, so JV_SHOT captures the HUD (hotbar + RUN)
+//                     instead of the 3-second boot splash.
 public class GameBoot : MonoBehaviour
 {
     string error;
     GameScreen screen;
+    MenuFlow flow;
     int frames;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -31,7 +38,9 @@ public class GameBoot : MonoBehaviour
             var rg = runner.gameObject;
             if (rg.GetComponent<GameSession>() == null) rg.AddComponent<GameSession>();
             screen = rg.GetComponent<GameScreen>() ?? rg.AddComponent<GameScreen>();
-            if (rg.GetComponent<MenuFlow>() == null) rg.AddComponent<MenuFlow>();
+            var mf = rg.GetComponent<MenuFlow>();
+            if (mf == null) mf = rg.AddComponent<MenuFlow>();
+            flow = mf;
         }
         catch (System.Exception e)
         {
@@ -40,11 +49,43 @@ public class GameBoot : MonoBehaviour
         }
     }
 
+    // Verification hook: JV_SHOT_LEVEL=<n> jumps straight into level n's build
+    // phase so a JV_SHOT capture shows the HUD rather than the boot splash.
+    void MaybeJumpToLevel()
+    {
+        string lv = System.Environment.GetEnvironmentVariable("JV_SHOT_LEVEL");
+        if (string.IsNullOrEmpty(lv)) return;
+        int level;
+        if (!int.TryParse(lv, out level) || level < 1) return;
+        // GameScreen.Start already loads level 1 behind the menu chrome, so
+        // "session is in Build" is NOT proof the player can see the HUD —
+        // MenuFlow.Screen.InGame is. Without this check a menu-only player
+        // would skip the jump and capture the menu.
+        if (flow != null && flow.Current == MenuFlow.Screen.InGame)
+        {
+            Debug.Log("[GameBoot] JV_SHOT_LEVEL=" + level + " (already in-game)");
+            return;
+        }
+        try
+        {
+            Debug.Log("[GameBoot] JV_SHOT_LEVEL=" + level + " -> jumping into build phase");
+            if (flow != null) flow.StartLevel(level);
+            else if (screen != null) screen.StartLevel(level);
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError("[GameBoot] JV_SHOT_LEVEL jump failed: " + e.Message);
+        }
+    }
+
     void Update()
     {
         // Verification hook: JV_SHOT=<png> saves the real player frame, then quits.
         if (frames == 0 && !string.IsNullOrEmpty(System.Environment.GetEnvironmentVariable("JV_SHOT")))
             Application.runInBackground = true;
+        // Let MenuFlow + GameScreen finish Start before steering, then jump
+        // into the build phase so the captured frame shows the HUD.
+        if (frames == 20 && error == null) MaybeJumpToLevel();
         if (frames == 120)
         {
             var shot = System.Environment.GetEnvironmentVariable("JV_SHOT");

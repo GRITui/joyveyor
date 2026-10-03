@@ -223,8 +223,13 @@ public class GameScreen : MonoBehaviour
             session.OnPhaseChanged += OnPhaseChanged;
             BuildHud();
             // S5: onboarding (level 1 only) — attached to the HUD canvas.
-            var obGo = new GameObject("Onboarding");
+            // The object carries an explicit RectTransform stretched over the
+            // canvas: the hint box anchors to screen edges, and a plain
+            // Transform parent has no rect, so its anchors would all resolve
+            // against a zero-size rect at the canvas centre.
+            var obGo = new GameObject("Onboarding", typeof(RectTransform));
             obGo.transform.SetParent(hudCanvas.transform, false);
+            Stretch(obGo.GetComponent<RectTransform>(), 0, 0, 0, 0);
             onboarding = obGo.AddComponent<Onboarding>();
             onboarding.Attach(this);
             // Default to level 1 (the tutorial). Probes call StartLevel(n).
@@ -959,8 +964,18 @@ public class GameScreen : MonoBehaviour
         return go.GetComponent<Image>();
     }
 
-    static readonly Color BarBg = new Color(0.06f, 0.06f, 0.08f, 0.82f);
+    // HUD bars are fully opaque: at alpha 0.82 the world grid lines showed
+    // through the bottom bar (~y820-865) and under the top bar.
+    static readonly Color BarBg = new Color(0.06f, 0.06f, 0.08f, 1f);
     static readonly Color SlotBg = new Color(0.12f, 0.12f, 0.15f, 0.95f);
+    // Selected tool = a 2px INNER OUTLINE (#FFD633), never a full-slot fill:
+    // the old fill was created after the icon + number badge and covered them.
+    static readonly Color SelOutline = new Color(1f, 214f / 255f, 51f / 255f, 1f);
+    const float SelOutlineWidth = 2f;
+    // Selected tile lift under the outline, so a 2px ring still reads at a glance.
+    static readonly Color SlotBgSelected = new Color(42f / 255f, 41f / 255f, 51f / 255f, 0.95f);  // #2A2933
+    // Pause-screen TEXT SIZE selection still uses a full-slot fill (its label
+    // sits under a separate, larger button — unchanged by this pass).
     static readonly Color SelHi = new Color(1f, 0.85f, 0.2f, 1f);
 
     GameObject MakeTopBar(Transform parent)
@@ -991,10 +1006,33 @@ public class GameScreen : MonoBehaviour
         var restart = MakeButton(bar.transform, "Restart", "\u21BB", 40);
         PositionTopRight(restart, 84);
         restart.GetComponent<Button>().onClick.AddListener(() => Restart());
-        var pause = MakeButton(bar.transform, "Pause", "\u23F8", 40);
+        // U+23F8 is missing from the built-in runtime font (renders as tofu),
+        // so the pause button carries the art-designer sprite instead.
+        var pause = MakeButton(bar.transform, "Pause", "", 40);
         PositionTopRight(pause, 0);
+        MakePauseIcon(pause.transform);
         pause.GetComponent<Button>().onClick.AddListener(() => TogglePause());
         return bar;
+    }
+
+    // Pause button icon: the baked sprite when present, else the glyph.
+    void MakePauseIcon(Transform parent)
+    {
+        var spr = UiSprite(5);   // 5 = pause in the shared UI-sprite table
+        if (spr != null)
+        {
+            var go = MakeImage(parent, "PauseIcon", Color.white);
+            var img = go.GetComponent<Image>();
+            img.sprite = spr;
+            img.preserveAspect = true;
+            img.raycastTarget = false;
+            Stretch(go.GetComponent<RectTransform>(), 11, 11, -11, -11);
+        }
+        else
+        {
+            var t = MakeText(parent, "PauseIcon", "\u23F8", 40, TextAnchor.MiddleCenter);
+            Stretch(t.rectTransform, 4, 4, -4, -4);
+        }
     }
 
     void PositionTopRight(GameObject go, float rightOffset)
@@ -1047,7 +1085,28 @@ public class GameScreen : MonoBehaviour
 
     readonly string[] SlotIcons = { "\u25AD", "\u25CF", "\u25F1", "\u25C7", "\u25C6", "\u2715" };
     readonly Color[] SlotColors = { ColorBelt, ColorSource, ColorSink, ColorSplitter, ColorMerger, new Color(0.8f, 0.3f, 0.3f) };
-    Image[] slotHi = new Image[6];
+    // U+25F1 (slot 3 / sink) and U+23F8 (top-bar pause) render as tofu in the
+    // built-in runtime font, so those two slots use baked PNG sprites from
+    // Assets/Resources (art-designer, 2026-10-03 toolbar icon export) instead.
+    // The other four keep their glyphs — "no belt glyph needed".
+    const int SinkSlot = 2;
+    static Sprite[] _uiSprites;
+    static Sprite UiSprite(int i)
+    {
+        if (_uiSprites == null)
+        {
+            // Indexed to match Tool: 2 = sink, 5 = pause.
+            _uiSprites = new Sprite[6];
+            _uiSprites[SinkSlot] = Resources.Load<Sprite>("icon-sink");
+            _uiSprites[5] = Resources.Load<Sprite>("icon-pause");
+        }
+        return _uiSprites[i];
+    }
+
+    // Slot selection: a 2px inner outline (4 thin Images) + a tile lift, so the
+    // icon and the number badge stay visible underneath.
+    Image[] slotHi = new Image[6];   // the selected-slot tile lift
+    GameObject[] slotOutline = new GameObject[6];
 
     GameObject MakeHotbar(Transform parent)
     {
@@ -1066,11 +1125,28 @@ public class GameScreen : MonoBehaviour
             srt.pivot = new Vector2(0, 0.5f);
             srt.anchoredPosition = new Vector2(i * (72 + 8), 0);
             srt.sizeDelta = new Vector2(72, 72);
-            slot.GetComponent<Image>().color = SlotBg;
-            // icon (colored)
-            var icon = MakeText(slot.transform, "Icon", SlotIcons[i], 34, TextAnchor.MiddleCenter);
-            icon.color = SlotColors[i];
-            Stretch(icon.rectTransform, 6, 6, -6, -6);
+            var slotImg = slot.GetComponent<Image>();
+            slotImg.color = SlotBg;
+            // selection outline FIRST (SetAsFirstSibling below) so the icon and
+            // the number badge always render on top of it.
+            slotOutline[i] = MakeSelectionOutline(slot.transform);
+            // icon (colored glyph, or a sprite where the glyph is missing)
+            var spr = UiSprite(i);
+            if (spr != null)
+            {
+                var iconGo = MakeImage(slot.transform, "Icon", Color.white);
+                var iim = iconGo.GetComponent<Image>();
+                iim.sprite = spr;
+                iim.preserveAspect = true;
+                iim.raycastTarget = false;
+                Stretch(iconGo.GetComponent<RectTransform>(), 8, 8, -8, -8);
+            }
+            else
+            {
+                var icon = MakeText(slot.transform, "Icon", SlotIcons[i], 34, TextAnchor.MiddleCenter);
+                icon.color = SlotColors[i];
+                Stretch(icon.rectTransform, 6, 6, -6, -6);
+            }
             // number badge
             var badge = MakeText(slot.transform, "Badge", (i + 1).ToString(), 18, TextAnchor.UpperLeft);
             badge.color = new Color(1f, 1f, 1f, 0.85f);
@@ -1079,16 +1155,52 @@ public class GameScreen : MonoBehaviour
             brt.pivot = new Vector2(0, 1);
             brt.anchoredPosition = new Vector2(4, -4);
             brt.sizeDelta = new Vector2(20, 20);
-            // selection highlight (full-slot outline)
-            var hi = MakeImage(slot.transform, "Hi", SelHi);
+            // selected tile lift (below the icon, above nothing else)
+            var hi = MakeImage(slot.transform, "Hi", SlotBgSelected);
             var hiImg = hi.GetComponent<Image>();
             hiImg.raycastTarget = false;
             hiImg.enabled = false;
             Stretch(hi.GetComponent<RectTransform>(), 0, 0, 0, 0);
+            hi.transform.SetAsFirstSibling();
             slotHi[i] = hiImg;
             slot.GetComponent<Button>().onClick.AddListener(() => SelectTool((Tool)i));
         }
         return root;
+    }
+
+    // 2px inner outline built from 4 thin Images (a filled full-slot rect would
+    // hide the icon and badge; Unity's Outline component would tint them).
+    GameObject MakeSelectionOutline(Transform parent)
+    {
+        var root = new GameObject("SelOutline");
+        root.transform.SetParent(parent, false);
+        Stretch(root.AddComponent<RectTransform>(), SelOutlineWidth, SelOutlineWidth, -SelOutlineWidth, -SelOutlineWidth);
+        // Each edge stretches along its axis (sizeDelta 0) so the ring tracks
+        // the tile size; the 2px thickness is the non-zero sizeDelta axis.
+        AddEdge(root.transform, "T", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, SelOutlineWidth));
+        AddEdge(root.transform, "B", new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, SelOutlineWidth));
+        AddEdge(root.transform, "L", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(SelOutlineWidth, 0f));
+        AddEdge(root.transform, "R", new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(1f, 0.5f), new Vector2(SelOutlineWidth, 0f));
+        root.SetActive(false);
+        root.transform.SetAsFirstSibling();   // under the icon + badge
+        return root;
+    }
+
+    void AddEdge(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax,
+                 Vector2 pivot, Vector2 thickness)
+    {
+        var e = MakeImage(parent, name, SelOutline);
+        e.GetComponent<Image>().raycastTarget = false;
+        var rt = e.GetComponent<RectTransform>();
+        rt.anchorMin = anchorMin; rt.anchorMax = anchorMax;
+        rt.pivot = pivot;
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta = thickness;
+    }
+
+    void SetSlotSelected(int i, bool on)
+    {
+        if (slotOutline[i] != null) slotOutline[i].SetActive(on);
     }
 
     GameObject MakeJammedBanner(Transform parent)
@@ -1622,7 +1734,11 @@ public class GameScreen : MonoBehaviour
         if (hotbarRoot != null && topBar != null)
             hotbarRoot.SetActive(session.phase == GameSession.Phase.Build);
         for (int i = 0; i < slotHi.Length; ++i)
-            if (slotHi[i] != null) slotHi[i].enabled = (tool == (Tool)i);
+        {
+            bool on = (tool == (Tool)i);
+            if (slotHi[i] != null) slotHi[i].enabled = on;
+            SetSlotSelected(i, on);
+        }
         UpdateHud();
     }
 

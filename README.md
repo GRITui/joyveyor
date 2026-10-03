@@ -276,3 +276,14 @@ JV_SHOT=/tmp/jv.png dist/JoyVeyor.app/Contents/MacOS/JoyVeyor
 
 It exists because `screencapture` fails in headless sessions. The PNG is the
 game's own render, not a capture of the desktop window.
+
+Frame 120 lands ~2s in, which is still the 3-second boot splash. Pair it with
+`JV_SHOT_LEVEL=<n>` to skip the boot/menu screens and jump straight into level
+`n`'s build phase, so the capture shows the HUD (top bar, 6-slot hotbar, RUN):
+
+```sh
+JV_SHOT=/tmp/jv.png JV_SHOT_LEVEL=1 dist/JoyVeyor.app/Contents/MacOS/JoyVeyor
+```
+
+Both vars are unset in normal play, so neither affects a shipped session.
+

@@ -34,15 +34,47 @@ public class Onboarding : MonoBehaviour
         "Ready? Press RUN to start the clock.",
         "Delivered! Get 10 before time runs out.",
     };
-    // Box anchor (canvas-center-relative, ConstantPixelSize) + arrow rotation.
-    // 0 DrawBelt -> bottom-center, arrow up (toward the grid).
-    // 1 PressRun -> bottom-right near RUN, arrow up.
-    // 2 FirstDelivered -> top-center below the top bar, arrow up.
-    static readonly Vector2[] Anchors =
+    // Per-hint layout: where the callout box sits, plus which edge the arrow
+    // hangs off. Hints 0 and 2 keep their original centre-anchored positions
+    // so the default (up arrow, centred) path is unchanged.
+    struct HintLayout
     {
-        new Vector2(0, -150),
-        new Vector2(250, -150),
-        new Vector2(0, 250),
+        public Vector2 anchorMin, anchorMax, pivot, pos;
+        public HintLayout(Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot, Vector2 pos)
+        {
+            this.anchorMin = anchorMin; this.anchorMax = anchorMax;
+            this.pivot = pivot; this.pos = pos;
+        }
+    }
+
+    static readonly HintLayout[] Layouts =
+    {
+        // 0 DrawBelt -> bottom-centre, well clear of the hotbar.
+        new HintLayout(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                       new Vector2(0.5f, 0.5f), new Vector2(0, -150)),
+        // 1 PressRun  -> right edge flush with RUN's right edge (both sit 24px
+        // in from the screen edge); bottom 92px above the screen floor = 12px
+        // above RUN's top edge (RUN is 64px tall, centred in the 96px bar).
+        new HintLayout(new Vector2(1, 0), new Vector2(1, 0),
+                       new Vector2(1, 0), new Vector2(-24, 92)),
+        // 2 FirstDelivered -> top-centre below the top bar.
+        new HintLayout(new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                       new Vector2(0.5f, 0.5f), new Vector2(0, 250)),
+    };
+    // Per-hint arrow direction. Up = apex on the top edge (the pre-existing
+    // behaviour); Down = apex on the bottom edge.
+    enum ArrowDir { Up, Down }
+    static readonly ArrowDir[] ArrowDirs = { ArrowDir.Up, ArrowDir.Down, ArrowDir.Up };
+    // x = pixels right of the callout's horizontal CENTRE, y = gap between the
+    // callout edge and the arrow base. Hints 0 and 2 keep the original centred
+    // arrow (x = 0); hint 1 puts it 48px in from the right edge.
+    const float BoxW = 460, BoxH = 64;
+    const float ArrowInsetFromRight = 48;
+    static readonly Vector2[] ArrowOffsets =
+    {
+        new Vector2(0, 2),
+        new Vector2(BoxW * 0.5f - ArrowInsetFromRight, 2),   // 182px right of centre
+        new Vector2(0, 2),
     };
 
     GameScreen gs;
@@ -146,15 +178,39 @@ public class Onboarding : MonoBehaviour
         if (box == null) return;
         current = i;
         boxText.text = Texts[i];
-        var rt = box.GetComponent<RectTransform>();
-        rt.anchoredPosition = Anchors[i];
+        ApplyLayout(Layouts[i]);
         box.SetActive(!suppressed);
         if (arrow != null)
         {
             arrow.gameObject.SetActive(true);
-            // All three targets sit above their box; keep the arrow up.
-            arrow.transform.localRotation = Quaternion.identity;
+            PositionArrow(ArrowDirs[i], ArrowOffsets[i]);
         }
+    }
+
+    void ApplyLayout(HintLayout l)
+    {
+        var rt = box.GetComponent<RectTransform>();
+        rt.anchorMin = l.anchorMin; rt.anchorMax = l.anchorMax;
+        rt.pivot = l.pivot;
+        rt.anchoredPosition = l.pos;
+    }
+
+    // Hang the arrow off the callout edge named by dir and rotate the up-drawn
+    // triangle so its apex points away from the box. offset.x is measured from
+    // the callout's horizontal CENTRE so it means the same thing for every
+    // hint layout (centred or right-pivoted).
+    void PositionArrow(ArrowDir dir, Vector2 offset)
+    {
+        var art = arrow.rectTransform;
+        bool down = dir == ArrowDir.Down;
+        // anchor to the box centre so offset.x reads as "right of centre"
+        art.anchorMin = art.anchorMax = new Vector2(0.5f, 0.5f);
+        // down: hang under the box (pivot top-centre); up: above it (pivot bottom-centre)
+        art.pivot = down ? new Vector2(0.5f, 1f) : new Vector2(0.5f, 0f);
+        art.anchoredPosition = new Vector2(offset.x, down ? -(BoxH * 0.5f + offset.y)
+                                                          : (BoxH * 0.5f + offset.y));
+        // apex up -> apex down is a 180 degree flip
+        art.localRotation = down ? Quaternion.Euler(0f, 0f, 180f) : Quaternion.identity;
     }
 
     // Public so GameScreen can hide the hint box when a level ends (the
@@ -183,17 +239,25 @@ public class Onboarding : MonoBehaviour
 
     void BuildUi()
     {
+        // The hint box anchors to screen corners/edges, so this component's own
+        // rect must span the canvas. GameScreen parents a RectTransform-bearing
+        // "Onboarding" object, but stretch defensively: a plain Transform parent
+        // has no rect, and every anchor would then collapse to the canvas centre.
+        var selfRt = transform as RectTransform;
+        if (selfRt == null)
+            Debug.LogWarning("[Onboarding] parent transform is not a RectTransform — "
+                + "hint anchors will resolve against a zero-size rect");
+        else
+            Stretch(selfRt, 0, 0, 0, 0);
+
         box = new GameObject("HintBox");
         box.transform.SetParent(transform, false);
         var img = box.AddComponent<Image>();
         img.color = new Color(0.07f, 0.07f, 0.09f, 0.95f);
         img.raycastTarget = false;
         var rt = box.GetComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0.5f, 0.5f);
-        rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = Anchors[0];
-        rt.sizeDelta = new Vector2(460, 64);
+        ApplyLayout(Layouts[0]);
+        rt.sizeDelta = new Vector2(BoxW, BoxH);
 
         boxText = MakeText(box.transform, "HintText", Texts[0], 22, TextAnchor.MiddleCenter);
         Stretch(boxText.rectTransform, 14, 8, -14, -8);
