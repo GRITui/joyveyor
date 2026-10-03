@@ -262,3 +262,17 @@ The C++ core is tested separately: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Relea
 cmake --build build -j4`, then run every `build/test_*` **from `build/`** (the
 level tests resolve `unity-project/Assets/Levels` relative to the build dir) —
 all must print `0 failures`.
+
+### Player screenshot hook (`JV_SHOT`)
+
+`GameBoot` has a verification hook for headless/CI use. If the env var `JV_SHOT`
+is set to a PNG path when the **built player** launches, the game keeps running
+in the background, saves a real player frame to that path at frame 120, and
+quits itself at frame 150. Unset = no effect for normal players.
+
+```sh
+JV_SHOT=/tmp/jv.png dist/JoyVeyor.app/Contents/MacOS/JoyVeyor
+```
+
+It exists because `screencapture` fails in headless sessions. The PNG is the
+game's own render, not a capture of the desktop window.
