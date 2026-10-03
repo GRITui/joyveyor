@@ -79,6 +79,7 @@ public class MenuTestProbe : MonoBehaviour
     Stage stage = Stage.Boot;
     int frameCount;
     int waitFrames;
+    int buildStep;
     int pauseStep;            // sub-state within Stage.Pause
     bool forcedFail;
     System.Diagnostics.Stopwatch completeSw;  // real-time deadline for the star-pop
@@ -184,12 +185,21 @@ public class MenuTestProbe : MonoBehaviour
             ok &= Expect(screen.runButton != null && screen.runButton.interactable,
                 "RUN not enabled (source+sink present)");
             if (!ok) { Fail("level 1 build assertions"); return; }
+            // Real build-mode state: reference belt placed + Splitter tool selected
+            // (differs from the untouched HUD shot). Shot is taken a few frames
+            // later so the HUD/world refresh.
+            if (buildStep == 0)
+            {
+                if (!session.PlacePiece('B', 1, 0, JoyveyorBridge.DirE, 4))
+                { Fail("reference belt rejected: " + session.Message); return; }
+                session.ClearMessage();
+                screen.SelectToolPublic(GameScreen.Tool.Splitter);
+                buildStep = 1; waitFrames = 0;
+                return;
+            }
+            if (waitFrames < 4) return;
             SaveShot(MenuTest.ShotBuild);
-
-            // Place the reference belt (B 1 0 1 4) through the game layer.
-            if (!session.PlacePiece('B', 1, 0, JoyveyorBridge.DirE, 4))
-            { Fail("reference belt rejected: " + session.Message); return; }
-            session.ClearMessage();
+            screen.SelectToolPublic(GameScreen.Tool.Belt);
             screen.StartRun();
             if (session.phase != GameSession.Phase.Run) { Fail("StartRun did not enter Run"); return; }
             stage = Stage.Pause;

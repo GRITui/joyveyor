@@ -148,7 +148,7 @@ public class Onboarding : MonoBehaviour
         boxText.text = Texts[i];
         var rt = box.GetComponent<RectTransform>();
         rt.anchoredPosition = Anchors[i];
-        box.SetActive(true);
+        box.SetActive(!suppressed);
         if (arrow != null)
         {
             arrow.gameObject.SetActive(true);
@@ -159,6 +159,17 @@ public class Onboarding : MonoBehaviour
 
     // Public so GameScreen can hide the hint box when a level ends (the
     // "Delivered!" hint otherwise overlaps the complete/failed overlay).
+    bool suppressed, hiddenBySuppress;
+    // Pause overlay owns the screen: hide the hint box while paused, restore after.
+    public void SetSuppressed(bool on)
+    {
+        if (suppressed == on) return;
+        suppressed = on;
+        if (box == null) return;
+        if (on) { hiddenBySuppress = box.activeSelf; box.SetActive(false); }
+        else if (hiddenBySuppress) { box.SetActive(true); hiddenBySuppress = false; }
+    }
+
     public void Hide()
     {
         if (box != null) box.SetActive(false);

@@ -1133,7 +1133,7 @@ public class GameScreen : MonoBehaviour
         crt.anchorMin = new Vector2(0.5f, 0.5f); crt.anchorMax = new Vector2(0.5f, 0.5f);
         crt.pivot = new Vector2(1, 0.5f);
         crt.anchoredPosition = new Vector2(-210, -130);
-        crt.sizeDelta = new Vector2(140, 40);
+        crt.sizeDelta = new Vector2(170, 40);
         pauseScaleButtons = new Button[3];
         pauseScaleHi = new Image[3];
         string[] labels = { "S", "M", "L" };
@@ -1573,6 +1573,7 @@ public class GameScreen : MonoBehaviour
             jammedBanner.SetActive(JoyveyorBridge.jv_is_deadlocked(runner.World) == 1);
 
         if (pauseOverlay != null) pauseOverlay.SetActive(session.Paused && session.phase == GameSession.Phase.Run);
+        if (onboarding != null) onboarding.SetSuppressed(pauseOverlay != null && pauseOverlay.activeSelf);
 
         if (runButton != null && session.phase == GameSession.Phase.Build)
         {
