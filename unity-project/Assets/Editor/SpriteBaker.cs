@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEngine;
 
 // JoyVeyor v1.0 — Sprint 6: build-time pixel-art atlas baker
-// (jv-design-visual-audio §1-3, §7).
+// (jv-design-visual-audio §1-3, §7). Art pass 1 = v2 palette (t_906f0ecf).
 //
 // Bakes ONE 256x256 atlas (Texture2D.SetPixel loops, point-filtered, no
 // mipmaps) to Assets/Art/atlas.png (committed). Contents:
@@ -82,15 +82,37 @@ public static class SpriteBaker
             (byte)(Convert.ToInt32(h.Substring(5, 2), 16) * 257) / 255f, 1f);
     }
 
-    static readonly Color BeltBase = Hex("#2A3140");
-    static readonly Color BeltChev = Hex("#4A5568");
+    // v2 palette (art pass 1, card t_906f0ecf): every family gains a top
+    // highlight and a bottom shadow so the pieces read as lit 3D boxes
+    // instead of flat fills, and the belt is lifted off the near-black
+    // background (v1 body was #2A3140 = 1.08:1 against the #0B0D12 board).
+    static readonly Color BeltBase = Hex("#3D4A5C");
+    static readonly Color BeltHi = Hex("#5A6B7F");
+    static readonly Color BeltSh = Hex("#1E2530");
+    static readonly Color BeltGroove = Hex("#2A3140");
+    static readonly Color BeltChev = Hex("#7A8FA6");
     static readonly Color SrcBase = Hex("#3DDC6A");
+    static readonly Color SrcHi = Hex("#6AEB94");
+    static readonly Color SrcSh = Hex("#1F9945");
+    static readonly Color SrcDot = Hex("#0E5A28");
     static readonly Color SrcFlash = Hex("#B6FFCE");
+    static readonly Color SrcFlashHi = Hex("#D8FFE6");
+    static readonly Color SrcFlashSh = Hex("#7AD4A0");
+    static readonly Color SrcDotF = Hex("#1A6B3A");
     static readonly Color SinkBase = Hex("#3B82F6");
+    static readonly Color SinkHi = Hex("#60A5FA");
+    static readonly Color SinkSh = Hex("#1D4ED8");
     static readonly Color SinkWell = Hex("#1E293B");
     static readonly Color SplitBase = Hex("#F59E0B");
+    static readonly Color SplitHi = Hex("#FBBF24");
+    static readonly Color SplitSh = Hex("#B45309");
     static readonly Color MergBase = Hex("#A855F7");
+    static readonly Color MergHi = Hex("#C084FC");
+    static readonly Color MergSh = Hex("#7E22CE");
     static readonly Color CrateBase = Hex("#F5D90A");
+    static readonly Color CrateHi = Hex("#F5E06A");
+    static readonly Color CrateSh = Hex("#B8A80A");
+    static readonly Color CrateStrap = Hex("#8B7500");
     static readonly Color IconDark = Hex("#1E293B");
 
     // ---- Pixel helpers (local coords, y down) ----
@@ -110,6 +132,30 @@ public static class SpriteBaker
         return true;
     }
 
+    // v2 helper: multiply RGB by f (clamped) to derive highlight/shadow tints
+    // from a base color, so each family shades consistently.
+    static Color Shade(Color c, float f)
+    {
+        return new Color(
+            Mathf.Clamp01(c.r * f),
+            Mathf.Clamp01(c.g * f),
+            Mathf.Clamp01(c.b * f), c.a);
+    }
+
+    // v2 helper: 1px lit top edge + 2px shadowed bottom edge inside a
+    // rounded rect — the shared "this box is lit from above" treatment.
+    static void EdgeLight(Color[] px, int ox, int oy, int x0, int y0, int x1, int y1,
+                          int r, Color hi, Color sh)
+    {
+        for (int x = x0; x <= x1; ++x)
+        {
+            if (InRoundedRect(x, y0, x0, y0, x1, y1, r)) P(px, ox, oy, x, y0, hi);
+            if (InRoundedRect(x, y0 + 1, x0, y0, x1, y1, r)) P(px, ox, oy, x, y0 + 1, Shade(hi, 0.82f));
+            if (InRoundedRect(x, y1, x0, y0, x1, y1, r)) P(px, ox, oy, x, y1, sh);
+            if (InRoundedRect(x, y1 - 1, x0, y0, x1, y1, r)) P(px, ox, oy, x, y1 - 1, Shade(sh, 1.35f));
+        }
+    }
+
     static void FillRoundedRect(Color[] px, int ox, int oy, int x0, int y0, int x1, int y1, int r, Color c)
     {
         for (int y = y0; y <= y1; ++y)
@@ -124,22 +170,34 @@ public static class SpriteBaker
     static void DrawBeltFrame(Color[] px, int ox, int oy, int k)
     {
         FillRoundedRect(px, ox, oy, 1, 6, 30, 25, 3, BeltBase);
-        // 2px center groove (darker, y=15..16).
-        Color groove = new Color(BeltBase.r * 0.55f, BeltBase.g * 0.55f, BeltBase.b * 0.55f, 1f);
+        // v2: lit top edge + shadowed bottom edge — gives the belt volume so it
+        // separates from the board instead of reading as a dark slab.
+        EdgeLight(px, ox, oy, 1, 6, 30, 25, 3, BeltHi, BeltSh);
+        // 2px center groove (v1 BeltBase is now the groove color).
         for (int x = 3; x <= 28; ++x)
         {
-            P(px, ox, oy, x, 15, groove);
-            P(px, ox, oy, x, 16, groove);
+            P(px, ox, oy, x, 15, BeltGroove);
+            P(px, ox, oy, x, 16, BeltGroove);
         }
-        // 2 chevrons pointing +X, offset by 8k px (wrap 32). Each chevron is a
-        // 2px-thick ">" 5px tall: tip at (px0+2, 15), arms back to (px0, 15±2).
-        for (int c = 0; c < 2; ++c)
+        // 4 chevrons pointing +X, 8px apart, offset by 2k px (wrap 32). Each
+        // chevron is a 3px-thick ">" 5px tall: tip at (px0+3, 15), arms
+        // back to (px0, 15±2).
+        //
+        // v2 note — why 4 chevrons at 8px, offset 2px:
+        // v1 used 2 chevrons 16px apart offset by 8k, so frames 0 and 2 were
+        // pixel-identical (as were 1 and 3) and the belt scrolled at half rate.
+        // A frame shift only changes the picture if it moves the chevrons to
+        // positions that are NOT already occupied — i.e. the offset step must
+        // not be a multiple of the chevron spacing. With 8px spacing, offsets
+        // 0/2/4/6 give four genuinely different frames, so tick%4 animates the
+        // whole cycle. (Offset 8k would shift by a full period and repeat.)
+        for (int c = 0; c < 4; ++c)
         {
-            int px0 = (8 + 16 * c + 8 * k) % 32;
+            int px0 = (2 + 8 * c + 2 * k) % 32;
             for (int dy = -2; dy <= 2; ++dy)
             {
-                int cx = px0 + (2 - Mathf.Abs(dy));
-                for (int t = 0; t < 2; ++t)
+                int cx = px0 + (3 - Mathf.Abs(dy));
+                for (int t = 0; t < 3; ++t)
                 {
                     int x = cx + t;
                     if (InRoundedRect(x, 15 + dy, 1, 6, 30, 25, 3)) P(px, ox, oy, x, 15 + dy, BeltChev);
@@ -152,18 +210,19 @@ public static class SpriteBaker
 
     static void DrawSource(Color[] px, int ox, int oy, Color baseC, bool flash)
     {
+        Color hi = flash ? SrcFlashHi : SrcHi;
+        Color sh = flash ? SrcFlashSh : SrcSh;
+        Color dot = flash ? SrcDotF : SrcDot;
         FillRoundedRect(px, ox, oy, 2, 2, 29, 29, 5, baseC);
-        Color dot = flash ? new Color(0.25f, 0.55f, 0.35f, 1f) : new Color(0.10f, 0.45f, 0.22f, 1f);
-        // hopper: 3 dots in a row (conveyor-in feel), y=15, x=9/15/21
+        EdgeLight(px, ox, oy, 2, 2, 29, 29, 5, hi, sh);
+        // hopper: 3 dots in a row (conveyor-in feel), y=14..16, x=8/15/22.
+        // v2: 3x3 dots instead of v1's 2x2, which read as dirt specks.
         for (int i = 0; i < 3; ++i)
         {
-            int x = 9 + 6 * i;
-            P(px, ox, oy, x, 14, dot);
-            P(px, ox, oy, x + 1, 14, dot);
-            P(px, ox, oy, x, 15, dot);
-            P(px, ox, oy, x + 1, 15, dot);
-            P(px, ox, oy, x, 16, dot);
-            P(px, ox, oy, x + 1, 16, dot);
+            int x = 8 + 7 * i;
+            for (int dy = 0; dy < 3; ++dy)
+                for (int dx = 0; dx < 3; ++dx)
+                    P(px, ox, oy, x + dx, 13 + dy, dot);
         }
     }
 
@@ -172,9 +231,13 @@ public static class SpriteBaker
     static void DrawSink(Color[] px, int ox, int oy)
     {
         FillRoundedRect(px, ox, oy, 2, 2, 29, 29, 5, SinkBase);
+        EdgeLight(px, ox, oy, 2, 2, 29, 29, 5, SinkHi, SinkSh);
         FillRoundedRect(px, ox, oy, 8, 8, 23, 23, 3, SinkWell);
         // rim highlight on the well's top edge
-        for (int x = 9; x <= 22; ++x) P(px, ox, oy, x, 7, Hex("#60A5FA"));
+        for (int x = 9; x <= 22; ++x) P(px, ox, oy, x, 7, SinkHi);
+        // v2: faint inner bounce on the well's back wall, so the hole has depth
+        // instead of reading as a flat dark square.
+        for (int x = 10; x <= 21; ++x) P(px, ox, oy, x, 9, Shade(SinkWell, 1.6f));
     }
 
     // ---- Splitter: square + "Y" fork icon (1 in, 2 out) ----
@@ -182,20 +245,23 @@ public static class SpriteBaker
     static void DrawSplitter(Color[] px, int ox, int oy)
     {
         FillRoundedRect(px, ox, oy, 2, 2, 29, 29, 4, SplitBase);
+        EdgeLight(px, ox, oy, 2, 2, 29, 29, 4, SplitHi, SplitSh);
         // Y: stem from bottom-center up to a fork, two arms to top-left/top-right.
+        // v2: 3px thick (was 2px) so the fork reads at hotbar size.
         for (int y = 9; y <= 16; ++y)
-        {
-            P(px, ox, oy, 15, y, IconDark);
-            P(px, ox, oy, 16, y, IconDark);
-        }
+            for (int dx = -1; dx <= 1; ++dx)
+                P(px, ox, oy, 15 + dx, y, IconDark);
         for (int i = 0; i <= 4; ++i)
         {
-            P(px, ox, oy, 15 - i, 9 - i, IconDark);
-            P(px, ox, oy, 16 + i, 9 - i, IconDark);
+            for (int dx = -1; dx <= 0; ++dx) P(px, ox, oy, 15 - i + dx, 9 - i, IconDark);
+            for (int dx = 0; dx <= 1; ++dx) P(px, ox, oy, 16 + i + dx, 9 - i, IconDark);
         }
         // out arrowheads (top-left / top-right)
-        P(px, ox, oy, 10, 3, IconDark); P(px, ox, oy, 11, 4, IconDark);
-        P(px, ox, oy, 21, 3, IconDark); P(px, ox, oy, 20, 4, IconDark);
+        for (int dx = 0; dx < 2; ++dx)
+        {
+            P(px, ox, oy, 9 + dx, 2, IconDark); P(px, ox, oy, 10 + dx, 3, IconDark);
+            P(px, ox, oy, 20 + dx, 2, IconDark); P(px, ox, oy, 19 + dx, 3, IconDark);
+        }
     }
 
     // ---- Merger: square + "^" merge icon (2 in, 1 out) ----
@@ -203,34 +269,68 @@ public static class SpriteBaker
     static void DrawMerger(Color[] px, int ox, int oy)
     {
         FillRoundedRect(px, ox, oy, 2, 2, 29, 29, 4, MergBase);
+        EdgeLight(px, ox, oy, 2, 2, 29, 29, 4, MergHi, MergSh);
         // ^: two arms from bottom-left/bottom-right meeting at top-center, stem down.
+        // v2: 3px thick (was 2px) so the merge reads at hotbar size.
         for (int i = 0; i <= 4; ++i)
         {
-            P(px, ox, oy, 11 + i, 10 + i, IconDark);
-            P(px, ox, oy, 20 - i, 10 + i, IconDark);
+            for (int dx = 0; dx <= 1; ++dx)
+            {
+                P(px, ox, oy, 11 + i + dx, 10 + i, IconDark);
+                P(px, ox, oy, 20 - i - dx, 10 + i, IconDark);
+            }
         }
         for (int y = 14; y <= 21; ++y)
-        {
-            P(px, ox, oy, 15, y, IconDark);
-            P(px, ox, oy, 16, y, IconDark);
-        }
+            for (int dx = -1; dx <= 1; ++dx)
+                P(px, ox, oy, 15 + dx, y, IconDark);
         // in arrowheads (bottom-left / bottom-right)
-        P(px, ox, oy, 10, 23, IconDark); P(px, ox, oy, 11, 22, IconDark);
-        P(px, ox, oy, 21, 23, IconDark); P(px, ox, oy, 20, 22, IconDark);
+        for (int dx = 0; dx < 2; ++dx)
+        {
+            P(px, ox, oy, 9 + dx, 23, IconDark); P(px, ox, oy, 10 + dx, 22, IconDark);
+            P(px, ox, oy, 20 + dx, 23, IconDark); P(px, ox, oy, 19 + dx, 22, IconDark);
+        }
     }
 
-    // ---- Crate: 16x16 #F5D90A square with a 1px darker border ----
+    // ---- Crate: 16x16 lit box (v2: 3D top face + cross straps, was a flat
+    // square with a single diagonal) ----
 
     static void DrawCrate(Color[] px, int ox, int oy)
     {
+        // Front face
         for (int y = 0; y < 16; ++y)
             for (int x = 0; x < 16; ++x)
-            {
-                bool edge = x == 0 || y == 0 || x == 15 || y == 15;
-                P(px, ox, oy, x, y, edge ? new Color(CrateBase.r * 0.6f, CrateBase.g * 0.6f, CrateBase.b * 0.4f, 1f) : CrateBase);
-            }
-        // diagonal strap
-        for (int i = 2; i <= 13; ++i) P(px, ox, oy, i, i, new Color(CrateBase.r * 0.6f, CrateBase.g * 0.6f, CrateBase.b * 0.4f, 1f));
+                P(px, ox, oy, x, y, CrateBase);
+        // Top face (rows 0-3) — reads as a lit lid seen at a shallow angle.
+        for (int y = 0; y < 4; ++y)
+            for (int x = 0; x < 16; ++x)
+                P(px, ox, oy, x, y, CrateHi);
+        // Lid seam
+        for (int x = 0; x < 16; ++x) P(px, ox, oy, x, 3, Shade(CrateHi, 0.78f));
+        // Bottom edge shadow + left edge shadow, right edge catch-light.
+        for (int y = 0; y < 16; ++y)
+        {
+            P(px, ox, oy, 0, y, CrateSh);
+            P(px, ox, oy, 15, y, Shade(CrateBase, 1.15f));
+        }
+        for (int x = 0; x < 16; ++x) P(px, ox, oy, x, 15, CrateSh);
+        // Cross straps (horizontal band rows 8-9, vertical band cols 7-8).
+        for (int x = 1; x <= 14; ++x)
+        {
+            P(px, ox, oy, x, 8, CrateStrap);
+            P(px, ox, oy, x, 9, CrateStrap);
+        }
+        for (int y = 4; y <= 14; ++y)
+        {
+            P(px, ox, oy, 7, y, CrateStrap);
+            P(px, ox, oy, 8, y, CrateStrap);
+        }
+        // Lit top-left corner of the strap crossing.
+        Color strapLit = Shade(CrateStrap, 1.45f);
+        for (int x = 7; x <= 8; ++x)
+        {
+            P(px, ox, oy, x, 8, strapLit);
+            P(px, ox, oy, x, 9, strapLit);
+        }
     }
 
     // Copy a 16x16 hotbar icon from a source region (downscale 2x for 32px regions).
